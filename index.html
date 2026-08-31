@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="دليل المناديب">
+<meta name="theme-color" content="#0c1118">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>دليل المناديب والمناطق الصوتي</title>
+<style>
+  :root{
+    --bg:#0c1118; --panel:#151d29; --panel2:#1b2532; --line:#28384c;
+    --amber:#d4a537; --green:#3ddc84; --red:#e0475a; --blue:#4fa3e0;
+    --text:#e7edf5; --text-dim:#8ba0b8;
+    --sans:'Segoe UI','Tahoma',sans-serif; --mono:'Consolas','Courier New',monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100%;}
+  .wrap{max-width:520px;margin:0 auto;padding:14px 14px 40px;}
+  h1{font-size:17px;margin:6px 0 2px;text-align:center;}
+  .sub{text-align:center;color:var(--text-dim);font-size:11.5px;margin-bottom:16px;font-family:var(--mono);}
+
+  .tabs{display:flex;gap:8px;margin-bottom:14px;}
+  .tab{flex:1;text-align:center;padding:10px;border-radius:10px;background:var(--panel);border:1px solid var(--line);cursor:pointer;font-size:14px;font-weight:600;color:var(--text-dim);}
+  .tab.active{background:#20180a;border-color:var(--amber);color:var(--amber);}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;}
+  .label{font-size:12px;color:var(--text-dim);margin-bottom:6px;}
+  select, input[type=text]{
+    width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:9px;padding:11px 12px;font-size:15px;font-family:var(--sans);margin-bottom:10px;
+  }
+  .row{display:flex;gap:8px;align-items:stretch;}
+  .row > *{flex:1;}
+  .btn{
+    border:none;border-radius:9px;padding:11px 14px;font-size:14px;font-weight:700;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:6px;
+  }
+  .btn-amber{background:var(--amber);color:#1a1408;}
+  .btn-outline{background:transparent;border:1px solid var(--line);color:var(--text);}
+  .btn-green{background:var(--green);color:#062a15;}
+  .btn-red{background:var(--red);color:#2a0710;}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .mic-btn{
+    width:52px;flex:0 0 52px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+    font-size:20px;cursor:pointer;color:var(--text);
+  }
+  .mic-btn.listening{background:var(--red);color:#fff;border-color:var(--red);animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.55;}}
+
+  .zonepill{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:5px 10px;margin:3px;font-size:12.5px;}
+  .zonepill button{background:none;border:none;color:var(--red);cursor:pointer;font-size:13px;padding:0;}
+
+  .courier-card{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;background:var(--panel2);}
+  .courier-name{font-weight:700;color:var(--amber);font-size:14.5px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;}
+  .courier-name .del{color:var(--text-dim);font-size:12px;cursor:pointer;font-weight:400;}
+  .zones-wrap{line-height:1.9;}
+  .empty{color:var(--text-dim);font-size:12.5px;text-align:center;padding:20px 0;}
+
+  .result{border-radius:12px;padding:16px;text-align:center;margin-top:6px;}
+  .result.found{background:#0f2417;border:1px solid var(--green);}
+  .result.notfound{background:#2a1216;border:1px solid var(--red);}
+  .result .big{font-size:19px;font-weight:800;margin-bottom:4px;}
+  .result.found .big{color:var(--green);}
+  .result.notfound .big{color:var(--red);}
+  .result .small{font-size:12.5px;color:var(--text-dim);}
+
+  .status{font-size:12px;color:var(--text-dim);text-align:center;margin-top:8px;min-height:16px;}
+  .hint{font-size:11px;color:var(--text-dim);text-align:center;margin-top:4px;}
+  .search-list{margin-top:10px;}
+  .search-item{padding:8px 10px;border-radius:8px;background:var(--panel2);margin-bottom:6px;font-size:12.5px;display:flex;justify-content:space-between;}
+  .search-item b{color:var(--amber);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎧 دليل المناديب والمناطق</h1>
+  <div class="sub">أضف بالصوت وإنت شغال — واسأل بالصوت وإنت شغال</div>
+
+  <div class="tabs">
+    <div class="tab active" id="tabAdd">➕ إضافة</div>
+    <div class="tab" id="tabSearch">🔍 بحث</div>
+    <div class="tab" id="tabList">📋 كل المناديب</div>
+  </div>
+
+  <!-- ADD TAB -->
+  <div id="paneAdd">
+    <div class="card">
+      <div class="label">اسم المندوب</div>
+      <div class="row" style="margin-bottom:10px;">
+        <input type="text" id="courierInput" list="courierList" placeholder="اكتب أو استخدم الميكروفون (Chrome فقط)" />
+        <button class="mic-btn" id="micCourier">🎤</button>
+      </div>
+      <datalist id="courierList"></datalist>
+      <select id="courierSelect">
+        <option value="">— أو اختر مندوب موجود —</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <div class="label">إضافة منطقة / شارع لهذا المندوب</div>
+      <div class="row">
+        <input type="text" id="zoneInput" list="zoneList" placeholder="اكتب أو استخدم الميكروفون (Chrome فقط)" />
+        <button class="mic-btn" id="micZone">🎤</button>
+      </div>
+      <datalist id="zoneList"></datalist>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn btn-amber" id="addZoneBtn">إضافة المنطقة</button>
+      </div>
+      <div class="status" id="addStatus"></div>
+      <div class="hint">بعد الإضافة، اسم المندوب بيفضل مختار — تقدر تسجّل مناطق كتير ورا بعض بسرعة</div>
+    </div>
+  </div>
+
+  <!-- SEARCH TAB -->
+  <div id="paneSearch" style="display:none;">
+    <div class="card">
+      <div class="label">قول اسم المنطقة أو الشارع، أو اكتبه</div>
+      <div class="row">
+        <input type="text" id="searchInput" placeholder="مثال: المعادي، شارع 9..." />
+        <button class="mic-btn" id="micSearch">🎤</button>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn btn-green" id="searchBtn">🔊 قول لي مين المسؤول</button>
+      </div>
+      <div id="searchResult"></div>
+      <div class="status" id="searchStatus"></div>
+    </div>
+  </div>
+
+  <!-- LIST TAB -->
+  <div id="paneList" style="display:none;">
+    <div class="card" id="listCard">
+      <div class="empty">لسه معندكش أي بيانات محفوظة</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'couriers-directory';
+let data = {}; // { courierName: [zones...] }
+let selectedCourier = '';
+
+// ---------- storage (works standalone on the phone, no internet needed) ----------
+async function loadData(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){ data = JSON.parse(raw); }
+  }catch(e){ data = {}; }
+  renderAll();
+}
+async function saveData(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }catch(e){ console.error('save failed', e); }
+}
+
+// ---------- normalize arabic for fuzzy match ----------
+function normalize(s){
+  return (s||'')
+    .replace(/[\u064B-\u065F]/g,'')
+    .replace(/[إأآا]/g,'ا')
+    .replace(/ى/g,'ي')
+    .replace(/ة/g,'ه')
+    .replace(/ؤ/g,'و')
+    .replace(/ئ/g,'ي')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toLowerCase();
+}
+
+// ---------- tabs ----------
+const tabs = { add: document.getElementById('tabAdd'), search: document.getElementById('tabSearch'), list: document.getElementById('tabList') };
+const panes = { add: document.getElementById('paneAdd'), search: document.getElementById('paneSearch'), list: document.getElementById('paneList') };
+function showTab(name){
+  Object.keys(tabs).forEach(k=>{
+    tabs[k].classList.toggle('active', k===name);
+    panes[k].style.display = k===name ? '' : 'none';
+  });
+  if(name==='list') renderList();
+}
+tabs.add.onclick=()=>showTab('add');
+tabs.search.onclick=()=>showTab('search');
+tabs.list.onclick=()=>showTab('list');
+
+// ---------- courier select dropdown ----------
+function renderCourierSelect(){
+  const sel = document.getElementById('courierSelect');
+  const names = Object.keys(data);
+  sel.innerHTML = '<option value="">— أو اختر مندوب موجود —</option>' +
+    names.map(n=>`<option value="${n}">${n} (${data[n].length} منطقة)</option>`).join('');
+  sel.value = selectedCourier || '';
+}
+document.getElementById('courierSelect').addEventListener('change', e=>{
+  selectedCourier = e.target.value;
+  if(selectedCourier) document.getElementById('courierInput').value = selectedCourier;
+});
+document.getElementById('courierInput').addEventListener('input', e=>{
+  selectedCourier = e.target.value.trim();
+});
+
+// ---------- add zone ----------
+document.getElementById('addZoneBtn').addEventListener('click', async ()=>{
+  const courier = document.getElementById('courierInput').value.trim();
+  const zone = document.getElementById('zoneInput').value.trim();
+  const statusEl = document.getElementById('addStatus');
+  if(!courier){ statusEl.textContent = '⚠ اكتب أو اختار اسم المندوب الأول'; return; }
+  if(!zone){ statusEl.textContent = '⚠ اكتب أو قول اسم المنطقة'; return; }
+  if(!data[courier]) data[courier] = [];
+  if(!data[courier].some(z=>normalize(z)===normalize(zone))){
+    data[courier].push(zone);
+    await saveData();
+    statusEl.textContent = `✅ اتضافت "${zone}" لـ ${courier}`;
+  } else {
+    statusEl.textContent = `ℹ️ "${zone}" مسجلة مسبقاً عند ${courier}`;
+  }
+  document.getElementById('zoneInput').value='';
+  selectedCourier = courier;
+  renderCourierSelect();
+  renderList();
+});
+
+// ---------- search ----------
+function doSearch(query){
+  const resEl = document.getElementById('searchResult');
+  const q = normalize(query);
+  if(!q){ resEl.innerHTML=''; return; }
+  let matches = [];
+  Object.keys(data).forEach(courier=>{
+    data[courier].forEach(zone=>{
+      const nz = normalize(zone);
+      if(nz.includes(q) || q.includes(nz)){
+        matches.push({courier, zone});
+      }
+    });
+  });
+  if(matches.length){
+    const primary = matches[0];
+    resEl.innerHTML = `<div class="result found">
+      <div class="big">${primary.courier}</div>
+      <div class="small">مسؤول عن "${primary.zone}"</div>
+    </div>` + (matches.length>1 ? `<div class="search-list">${matches.slice(1).map(m=>`<div class="search-item"><span>${m.zone}</span><b>${m.courier}</b></div>`).join('')}</div>` : '');
+    speak(`${primary.courier} هو المسؤول عن ${primary.zone}`);
+  } else {
+    resEl.innerHTML = `<div class="result notfound">
+      <div class="big">مفيش نتيجة</div>
+      <div class="small">مفيش مندوب مسجل ليه المنطقة دي لحد دلوقتي</div>
+    </div>`;
+    speak('معنديش بيانات عن المنطقة دي');
+  }
+}
+document.getElementById('searchBtn').addEventListener('click', ()=>{
+  doSearch(document.getElementById('searchInput').value);
+});
+document.getElementById('searchInput').addEventListener('keydown', e=>{
+  if(e.key==='Enter') doSearch(e.target.value);
+});
+
+// ---------- list / delete ----------
+function renderList(){
+  const el = document.getElementById('listCard');
+  const names = Object.keys(data);
+  if(!names.length){ el.innerHTML = '<div class="empty">لسه معندكش أي بيانات محفوظة</div>'; return; }
+  el.innerHTML = names.map(n=>`
+    <div class="courier-card">
+      <div class="courier-name"><span>${n} <span style="color:var(--text-dim);font-weight:400;">(${data[n].length})</span></span>
+        <span class="del" data-courier="${n}">حذف المندوب ✕</span></div>
+      <div class="zones-wrap">
+        ${data[n].map((z,i)=>`<span class="zonepill">${z} <button data-courier="${n}" data-idx="${i}">✕</button></span>`).join('')}
+      </div>
+    </div>
+  `).join('');
+  el.querySelectorAll('.zonepill button').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      const c = b.dataset.courier, idx = +b.dataset.idx;
+      data[c].splice(idx,1);
+      await saveData();
+      renderList(); renderCourierSelect();
+    });
+  });
+  el.querySelectorAll('.del').forEach(d=>{
+    d.addEventListener('click', async ()=>{
+      if(confirm(`متأكد إنك عايز تمسح ${d.dataset.courier} وكل مناطقه؟`)){
+        delete data[d.dataset.courier];
+        await saveData();
+        renderList(); renderCourierSelect();
+      }
+    });
+  });
+}
+function renderAll(){ renderCourierSelect(); renderList(); renderDatalists(); }
+function renderDatalists(){
+  const courierList = document.getElementById('courierList');
+  const zoneList = document.getElementById('zoneList');
+  const names = Object.keys(data);
+  courierList.innerHTML = names.map(n=>`<option value="${n}">`).join('');
+  const allZones = new Set();
+  names.forEach(n=> data[n].forEach(z=> allZones.add(z)));
+  zoneList.innerHTML = Array.from(allZones).map(z=>`<option value="${z}">`).join('');
+}
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
+
+// ---------- speech ----------
+function speak(text){
+  try{
+    if(!('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ar-SA';
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+function wireMic(btnId, targetInputId, onResult){
+  const btn = document.getElementById(btnId);
+  if(!SpeechRec){ btn.style.display='none'; return; }
+  let rec = null, listening=false;
+  btn.addEventListener('click', ()=>{
+    if(listening){ rec && rec.stop(); return; }
+    rec = new SpeechRec();
+    rec.lang = 'ar-EG';
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onstart = ()=>{ listening=true; btn.classList.add('listening'); };
+    rec.onend = ()=>{ listening=false; btn.classList.remove('listening'); };
+    rec.onerror = ()=>{ listening=false; btn.classList.remove('listening'); };
+    rec.onresult = (ev)=>{
+      const transcript = ev.results[0][0].transcript;
+      document.getElementById(targetInputId).value = transcript;
+      if(onResult) onResult(transcript);
+    };
+    rec.start();
+  });
+}
+wireMic('micCourier','courierInput', t=>{ selectedCourier = t.trim(); });
+wireMic('micZone','zoneInput');
+wireMic('micSearch','searchInput', t=>{ doSearch(t); });
+
+if(!SpeechRec){
+  document.querySelectorAll('.hint').forEach(h=> h.textContent = 'الميكروفون مش متاح على المتصفح ده — استخدم الكتابة اليدوية بدل الصوت');
+} else if(navigator.brave && navigator.brave.isBrave){
+  navigator.brave.isBrave().then(isBrave=>{
+    if(isBrave){
+      document.querySelectorAll('.mic-btn').forEach(b=> b.title = 'Brave بيعطّل التعرف على الصوت عمداً — استخدم Chrome لهذه الميزة');
+      const note = document.createElement('div');
+      note.className = 'hint';
+      note.style.color = 'var(--red)';
+      note.textContent = '⚠ إنت شغال على Brave — الميكروفون مش هيشتغل بتصميم من المتصفح نفسه. افتح نفس الرابط في Chrome عشان الصوت يشتغل.';
+      document.querySelector('.wrap').insertBefore(note, document.querySelector('.tabs'));
+    }
+  });
+}
+
+loadData();
+</script>
+</body>
+</html>
