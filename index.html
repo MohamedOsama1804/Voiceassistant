@@ -469,36 +469,50 @@ wireMic('micSearch','searchInput', t=>{ doSearch(t); });
 wireMic('micQuick','quickInput');
 
 // ---------- continuous "always listening" mode for search ----------
+// Uses a single persistent recognition session (continuous:true) instead of
+// stopping/restarting after every phrase — mobile Chrome blocks JS-initiated
+// mic restarts that aren't tied to a fresh tap, especially after a delay.
 let continuousActive = false;
 let continuousRec = null;
+let lastResultIndex = 0;
 const contBtn = document.getElementById('continuousBtn');
 const contStatus = document.getElementById('continuousStatus');
 
 function startContinuousCycle(){
   if(!continuousActive || !SpeechRec) return;
+  lastResultIndex = 0;
   continuousRec = new SpeechRec();
   continuousRec.lang = 'ar-EG';
+  continuousRec.continuous = true;       // keep one session open across multiple phrases
   continuousRec.interimResults = false;
   continuousRec.maxAlternatives = 1;
-  continuousRec.onstart = ()=>{ contStatus.textContent = '🎙️ بسمعك دلوقتي...'; };
+  continuousRec.onstart = ()=>{ contStatus.textContent = '🎙️ بسمعك دلوقتي... (اتكلم في أي وقت)'; };
   continuousRec.onerror = (e)=>{
-    contStatus.textContent = (e.error==='no-speech') ? '...لسه مستني كلام' : 'حصل خطأ، بحاول تاني...';
+    contStatus.textContent = (e.error==='no-speech') ? '...لسه مستني كلام' : ('تنبيه: '+e.error);
   };
   continuousRec.onresult = (ev)=>{
-    const transcript = ev.results[0][0].transcript;
-    document.getElementById('searchInput').value = transcript;
-    doSearch(transcript);
+    for(let i=lastResultIndex; i<ev.results.length; i++){
+      if(ev.results[i].isFinal){
+        const transcript = ev.results[i][0].transcript;
+        document.getElementById('searchInput').value = transcript;
+        doSearch(transcript);
+      }
+    }
+    lastResultIndex = ev.results.length;
   };
   continuousRec.onend = ()=>{
-    if(!continuousActive) return;
-    // wait for any speech (TTS) to finish before listening again, then loop
-    const waitAndRestart = ()=>{
-      if(speechSynthesis.speaking){ setTimeout(waitAndRestart, 300); return; }
-      if(continuousActive) startContinuousCycle();
-    };
-    setTimeout(waitAndRestart, 400);
+    // session ended (silence timeout, etc). Restart IMMEDIATELY (no delay) —
+    // any delay here risks losing the activation window on mobile Chrome.
+    if(continuousActive){
+      try{ startContinuousCycle(); }catch(e){
+        contStatus.textContent = '⚠ اتوقف — دوس "ابدأ" تاني (قيود المتصفح على الموبايل)';
+        continuousActive = false;
+        contBtn.textContent = '▶️ ابدأ الوضع المستمر';
+        contBtn.classList.remove('listening');
+      }
+    }
   };
-  try{ continuousRec.start(); }catch(e){ setTimeout(()=>{ if(continuousActive) startContinuousCycle(); }, 500); }
+  try{ continuousRec.start(); }catch(e){ /* already running or blocked */ }
 }
 
 if(contBtn){
