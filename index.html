@@ -51,6 +51,7 @@
     font-size:20px;cursor:pointer;color:var(--text);
   }
   .mic-btn.listening{background:var(--red);color:#fff;border-color:var(--red);animation:pulse 1s infinite;}
+  #continuousBtn.listening{background:var(--red);color:#fff;border-color:var(--red);animation:pulse 1.4s infinite;}
   @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.55;}}
 
   .zonepill{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:5px 10px;margin:3px;font-size:12.5px;}
@@ -78,6 +79,7 @@
 </style>
 </head>
 <body>
+<script src="xlsx.full.min.js"></script>
 <div class="wrap">
   <h1>🎧 دليل المناديب والمناطق</h1>
   <div class="sub">أضف بالصوت وإنت شغال — واسأل بالصوت وإنت شغال</div>
@@ -86,10 +88,24 @@
     <div class="tab active" id="tabAdd">➕ إضافة</div>
     <div class="tab" id="tabSearch">🔍 بحث</div>
     <div class="tab" id="tabList">📋 كل المناديب</div>
+    <div class="tab" id="tabImport">📥 إكسل</div>
   </div>
 
   <!-- ADD TAB -->
   <div id="paneAdd">
+    <div class="card">
+      <div class="label">إضافة سريعة بسطر واحد — اسم المندوب - المنطقة (أو مناطق كذا مفصولة بفاصلة)</div>
+      <div class="row">
+        <input type="text" id="quickInput" placeholder="مثال: أحمد عواض - السادس, الشيخ زايد" />
+        <button class="mic-btn" id="micQuick">🎤</button>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn btn-green" id="quickAddBtn">إضافة السطر ده</button>
+      </div>
+      <div class="status" id="quickStatus"></div>
+      <div class="hint">لازم فاصلة "-" بين اسم المندوب والمناطق، وتقدر تكتب أكتر من منطقة بفاصلة عادية بينهم</div>
+    </div>
+
     <div class="card">
       <div class="label">اسم المندوب</div>
       <div class="row" style="margin-bottom:10px;">
@@ -131,12 +147,35 @@
       <div id="searchResult"></div>
       <div class="status" id="searchStatus"></div>
     </div>
+
+    <div class="card" style="text-align:center;">
+      <div class="label" style="margin-bottom:10px;">وضع الشغل المستمر — دوس مرة يفضل شغال يسمع ويجاوب لوحده</div>
+      <button class="btn" id="continuousBtn" style="width:100%;padding:16px;font-size:16px;background:var(--panel2);border:1px solid var(--line);color:var(--text);">
+        ▶️ ابدأ الوضع المستمر
+      </button>
+      <div class="status" id="continuousStatus"></div>
+    </div>
   </div>
 
   <!-- LIST TAB -->
   <div id="paneList" style="display:none;">
     <div class="card" id="listCard">
       <div class="empty">لسه معندكش أي بيانات محفوظة</div>
+    </div>
+  </div>
+
+  <!-- IMPORT/EXPORT TAB -->
+  <div id="paneImport" style="display:none;">
+    <div class="card">
+      <div class="label">استيراد من ملف إكسل</div>
+      <div class="hint" style="margin-bottom:10px;">أول عمود: اسم المندوب. تاني عمود: كل الشوارع والمناطق بتاعته في نفس الخلية، مفصولة بفاصلة "," أو سطر جديد جوه نفس الخلية. مهم: السطر الأول (العناوين) بيتجاهل تلقائياً، خليه موجود زي "اسم المندوب" و"المناطق".</div>
+      <input type="file" id="excelFile" accept=".xlsx,.xls,.csv" style="width:100%;color:var(--text);margin-bottom:10px;" />
+      <button class="btn btn-green" id="importBtn" style="width:100%;">استيراد الملف</button>
+      <div class="status" id="importStatus"></div>
+    </div>
+    <div class="card">
+      <div class="label">تصدير البيانات الحالية كملف إكسل</div>
+      <button class="btn btn-outline" id="exportBtn" style="width:100%;">⬇️ تصدير Excel</button>
     </div>
   </div>
 </div>
@@ -175,8 +214,8 @@ function normalize(s){
 }
 
 // ---------- tabs ----------
-const tabs = { add: document.getElementById('tabAdd'), search: document.getElementById('tabSearch'), list: document.getElementById('tabList') };
-const panes = { add: document.getElementById('paneAdd'), search: document.getElementById('paneSearch'), list: document.getElementById('paneList') };
+const tabs = { add: document.getElementById('tabAdd'), search: document.getElementById('tabSearch'), list: document.getElementById('tabList'), importT: document.getElementById('tabImport') };
+const panes = { add: document.getElementById('paneAdd'), search: document.getElementById('paneSearch'), list: document.getElementById('paneList'), importT: document.getElementById('paneImport') };
 function showTab(name){
   Object.keys(tabs).forEach(k=>{
     tabs[k].classList.toggle('active', k===name);
@@ -187,6 +226,7 @@ function showTab(name){
 tabs.add.onclick=()=>showTab('add');
 tabs.search.onclick=()=>showTab('search');
 tabs.list.onclick=()=>showTab('list');
+tabs.importT.onclick=()=>showTab('importT');
 
 // ---------- courier select dropdown ----------
 function renderCourierSelect(){
@@ -343,9 +383,145 @@ function wireMic(btnId, targetInputId, onResult){
     rec.start();
   });
 }
+// ---------- quick combined add: "الاسم - منطقة1, منطقة2" ----------
+async function quickAdd(text){
+  const statusEl = document.getElementById('quickStatus');
+  if(!text || !text.includes('-')){
+    statusEl.textContent = '⚠ لازم تحط فاصلة "-" بين اسم المندوب والمناطق';
+    return;
+  }
+  const idx = text.indexOf('-');
+  const courier = text.slice(0, idx).trim();
+  const zonesRaw = text.slice(idx+1).trim();
+  if(!courier || !zonesRaw){ statusEl.textContent = '⚠ تأكد من كتابة الاسم والمناطق'; return; }
+  const zones = zonesRaw.split(/[,،\n]/).map(z=>z.trim()).filter(Boolean);
+  if(!data[courier]) data[courier] = [];
+  let added = 0;
+  zones.forEach(zone=>{
+    if(!data[courier].some(z=>normalize(z)===normalize(zone))){
+      data[courier].push(zone); added++;
+    }
+  });
+  await saveData();
+  statusEl.textContent = `✅ اتضاف ${added} منطقة لـ ${courier}`;
+  document.getElementById('quickInput').value = '';
+  selectedCourier = courier;
+  renderAll();
+}
+document.getElementById('quickAddBtn').addEventListener('click', ()=>{
+  quickAdd(document.getElementById('quickInput').value);
+});
+document.getElementById('quickInput').addEventListener('keydown', e=>{
+  if(e.key==='Enter') quickAdd(e.target.value);
+});
+
+// ---------- excel import / export ----------
+document.getElementById('importBtn').addEventListener('click', ()=>{
+  const fileInput = document.getElementById('excelFile');
+  const statusEl = document.getElementById('importStatus');
+  const file = fileInput.files[0];
+  if(!file){ statusEl.textContent = '⚠ اختار ملف الأول'; return; }
+  const reader = new FileReader();
+  reader.onload = async (e)=>{
+    try{
+      const wb = XLSX.read(e.target.result, {type:'array'});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, {header:1});
+      let couriersCount = 0, zonesCount = 0;
+      rows.forEach((row, i)=>{
+        if(i===0) return; // skip header row
+        const courier = (row[0]||'').toString().trim();
+        const zoneCell = (row[1]||'').toString().trim();
+        if(!courier || !zoneCell) return;
+        const zones = zoneCell.split(/[,،\n]/).map(z=>z.trim()).filter(Boolean);
+        if(!data[courier]) data[courier] = [];
+        couriersCount++;
+        zones.forEach(zone=>{
+          if(!data[courier].some(z=>normalize(z)===normalize(zone))){
+            data[courier].push(zone); zonesCount++;
+          }
+        });
+      });
+      await saveData();
+      statusEl.textContent = `✅ تم استيراد ${couriersCount} مندوب و ${zonesCount} منطقة جديدة`;
+      renderAll();
+    }catch(err){
+      statusEl.textContent = '⚠ حصل خطأ في قراءة الملف — تأكد إنه xlsx أو csv سليم';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const rows = [['اسم المندوب','المناطق']];
+  Object.keys(data).forEach(courier=>{
+    rows.push([courier, data[courier].join(', ')]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'المناديب');
+  XLSX.writeFile(wb, 'دليل_المناديب.xlsx');
+});
+
 wireMic('micCourier','courierInput', t=>{ selectedCourier = t.trim(); });
 wireMic('micZone','zoneInput');
 wireMic('micSearch','searchInput', t=>{ doSearch(t); });
+wireMic('micQuick','quickInput');
+
+// ---------- continuous "always listening" mode for search ----------
+let continuousActive = false;
+let continuousRec = null;
+const contBtn = document.getElementById('continuousBtn');
+const contStatus = document.getElementById('continuousStatus');
+
+function startContinuousCycle(){
+  if(!continuousActive || !SpeechRec) return;
+  continuousRec = new SpeechRec();
+  continuousRec.lang = 'ar-EG';
+  continuousRec.interimResults = false;
+  continuousRec.maxAlternatives = 1;
+  continuousRec.onstart = ()=>{ contStatus.textContent = '🎙️ بسمعك دلوقتي...'; };
+  continuousRec.onerror = (e)=>{
+    contStatus.textContent = (e.error==='no-speech') ? '...لسه مستني كلام' : 'حصل خطأ، بحاول تاني...';
+  };
+  continuousRec.onresult = (ev)=>{
+    const transcript = ev.results[0][0].transcript;
+    document.getElementById('searchInput').value = transcript;
+    doSearch(transcript);
+  };
+  continuousRec.onend = ()=>{
+    if(!continuousActive) return;
+    // wait for any speech (TTS) to finish before listening again, then loop
+    const waitAndRestart = ()=>{
+      if(speechSynthesis.speaking){ setTimeout(waitAndRestart, 300); return; }
+      if(continuousActive) startContinuousCycle();
+    };
+    setTimeout(waitAndRestart, 400);
+  };
+  try{ continuousRec.start(); }catch(e){ setTimeout(()=>{ if(continuousActive) startContinuousCycle(); }, 500); }
+}
+
+if(contBtn){
+  if(!SpeechRec){
+    contBtn.disabled = true;
+    contStatus.textContent = 'الميزة دي محتاجة متصفح فيه دعم صوتي (Chrome)';
+  }
+  contBtn.addEventListener('click', ()=>{
+    continuousActive = !continuousActive;
+    if(continuousActive){
+      contBtn.textContent = '⏸ إيقاف الوضع المستمر';
+      contBtn.classList.add('listening');
+      contStatus.textContent = 'شغّال...';
+      startContinuousCycle();
+    } else {
+      contBtn.textContent = '▶️ ابدأ الوضع المستمر';
+      contBtn.classList.remove('listening');
+      contStatus.textContent = 'واقف';
+      if(continuousRec){ try{ continuousRec.stop(); }catch(e){} }
+      speechSynthesis.cancel();
+    }
+  });
+}
 
 if(!SpeechRec){
   document.querySelectorAll('.hint').forEach(h=> h.textContent = 'الميكروفون مش متاح على المتصفح ده — استخدم الكتابة اليدوية بدل الصوت');
