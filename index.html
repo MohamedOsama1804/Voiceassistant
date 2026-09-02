@@ -313,6 +313,10 @@ function renderList(){
       <div class="zones-wrap">
         ${data[n].map((z,i)=>`<span class="zonepill">${z} <button data-courier="${n}" data-idx="${i}">✕</button></span>`).join('')}
       </div>
+      <div class="row" style="margin-top:8px;">
+        <input type="text" class="inlineAddInput" data-courier="${n}" list="zoneList" placeholder="أضف منطقة جديدة له مباشرة..." />
+        <button class="btn btn-amber inlineAddBtn" data-courier="${n}" style="flex:0 0 auto;padding:8px 14px;">إضافة</button>
+      </div>
     </div>
   `).join('');
   el.querySelectorAll('.zonepill button').forEach(b=>{
@@ -320,7 +324,7 @@ function renderList(){
       const c = b.dataset.courier, idx = +b.dataset.idx;
       data[c].splice(idx,1);
       await saveData();
-      renderList(); renderCourierSelect();
+      renderList(); renderCourierSelect(); renderDatalists();
     });
   });
   el.querySelectorAll('.del').forEach(d=>{
@@ -328,8 +332,29 @@ function renderList(){
       if(confirm(`متأكد إنك عايز تمسح ${d.dataset.courier} وكل مناطقه؟`)){
         delete data[d.dataset.courier];
         await saveData();
-        renderList(); renderCourierSelect();
+        renderList(); renderCourierSelect(); renderDatalists();
       }
+    });
+  });
+  function inlineAdd(courier, input){
+    const zone = input.value.trim();
+    if(!zone) return;
+    if(!data[courier]) data[courier] = [];
+    if(!data[courier].some(z=>normalize(z)===normalize(zone))){
+      data[courier].push(zone);
+      saveData();
+    }
+    renderList(); renderCourierSelect(); renderDatalists();
+  }
+  el.querySelectorAll('.inlineAddBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const input = el.querySelector(`.inlineAddInput[data-courier="${CSS.escape(btn.dataset.courier)}"]`);
+      inlineAdd(btn.dataset.courier, input);
+    });
+  });
+  el.querySelectorAll('.inlineAddInput').forEach(input=>{
+    input.addEventListener('keydown', e=>{
+      if(e.key==='Enter') inlineAdd(input.dataset.courier, input);
     });
   });
 }
