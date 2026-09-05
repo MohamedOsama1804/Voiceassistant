@@ -89,6 +89,7 @@
     <div class="tab" id="tabSearch">🔍 بحث</div>
     <div class="tab" id="tabList">📋 كل المناديب</div>
     <div class="tab" id="tabImport">📥 إكسل</div>
+    <div class="tab" id="tabRegions">🗺️ مناطق كبرى</div>
   </div>
 
   <!-- ADD TAB -->
@@ -178,11 +179,43 @@
       <button class="btn btn-outline" id="exportBtn" style="width:100%;">⬇️ تصدير Excel</button>
     </div>
   </div>
+
+  <!-- REGIONS (SUB-AREA → PARENT REGION) TAB -->
+  <div id="paneRegions" style="display:none;">
+    <div class="card">
+      <div class="label">اسم منطقة فرعية (زي: الياسمين)</div>
+      <input type="text" id="subAreaInput" placeholder="مثال: الياسمين" />
+      <div class="label" style="margin-top:10px;">تابعة لمنطقة كبرى (زي: التجمع الأول)</div>
+      <input type="text" id="parentRegionInput" list="regionList" placeholder="مثال: التجمع الأول" />
+      <datalist id="regionList"></datalist>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn btn-amber" id="addAliasBtn">إضافة الربط ده</button>
+      </div>
+      <div class="status" id="aliasStatus"></div>
+      <div class="hint">لما حد يسأل عن "الياسمين"، الأداة هتقول إنها تابعة لـ"التجمع الأول" وبعدين تقول مين المندوب المسؤول عن التجمع الأول (لو متسجل).</div>
+    </div>
+    <div class="card" id="aliasListCard">
+      <div class="empty">لسه معملتش أي ربط بين مناطق فرعية ومناطق كبرى</div>
+    </div>
+    <div class="card">
+      <div class="label">استيراد ربط مناطق بالجملة من إكسل</div>
+      <div class="hint" style="margin-bottom:10px;">عمود أول: المنطقة الفرعية. عمود تاني: المنطقة الكبرى التابعة لها. السطر الأول (العناوين) بيتجاهل تلقائياً.</div>
+      <input type="file" id="aliasExcelFile" accept=".xlsx,.xls,.csv" style="width:100%;color:var(--text);margin-bottom:10px;" />
+      <button class="btn btn-green" id="importAliasBtn" style="width:100%;">استيراد الربط</button>
+      <div class="status" id="importAliasStatus"></div>
+    </div>
+    <div class="card">
+      <div class="label">تصدير الروابط الحالية كملف إكسل</div>
+      <button class="btn btn-outline" id="exportAliasBtn" style="width:100%;">⬇️ تصدير Excel</button>
+    </div>
+  </div>
 </div>
 
 <script>
 const STORAGE_KEY = 'couriers-directory';
+const ALIASES_KEY = 'region-aliases';
 let data = {}; // { courierName: [zones...] }
+let aliases = {}; // { subAreaName: parentRegionName } e.g. { "الياسمين": "التجمع الأول" }
 let selectedCourier = '';
 
 // ---------- storage (works standalone on the phone, no internet needed) ----------
@@ -191,12 +224,21 @@ async function loadData(){
     const raw = localStorage.getItem(STORAGE_KEY);
     if(raw){ data = JSON.parse(raw); }
   }catch(e){ data = {}; }
+  try{
+    const rawA = localStorage.getItem(ALIASES_KEY);
+    if(rawA){ aliases = JSON.parse(rawA); }
+  }catch(e){ aliases = {}; }
   renderAll();
 }
 async function saveData(){
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }catch(e){ console.error('save failed', e); }
+}
+async function saveAliases(){
+  try{
+    localStorage.setItem(ALIASES_KEY, JSON.stringify(aliases));
+  }catch(e){ console.error('save aliases failed', e); }
 }
 
 // ---------- normalize arabic for fuzzy match ----------
@@ -214,19 +256,21 @@ function normalize(s){
 }
 
 // ---------- tabs ----------
-const tabs = { add: document.getElementById('tabAdd'), search: document.getElementById('tabSearch'), list: document.getElementById('tabList'), importT: document.getElementById('tabImport') };
-const panes = { add: document.getElementById('paneAdd'), search: document.getElementById('paneSearch'), list: document.getElementById('paneList'), importT: document.getElementById('paneImport') };
+const tabs = { add: document.getElementById('tabAdd'), search: document.getElementById('tabSearch'), list: document.getElementById('tabList'), importT: document.getElementById('tabImport'), regions: document.getElementById('tabRegions') };
+const panes = { add: document.getElementById('paneAdd'), search: document.getElementById('paneSearch'), list: document.getElementById('paneList'), importT: document.getElementById('paneImport'), regions: document.getElementById('paneRegions') };
 function showTab(name){
   Object.keys(tabs).forEach(k=>{
     tabs[k].classList.toggle('active', k===name);
     panes[k].style.display = k===name ? '' : 'none';
   });
   if(name==='list') renderList();
+  if(name==='regions') renderAliasList();
 }
 tabs.add.onclick=()=>showTab('add');
 tabs.search.onclick=()=>showTab('search');
 tabs.list.onclick=()=>showTab('list');
 tabs.importT.onclick=()=>showTab('importT');
+tabs.regions.onclick=()=>showTab('regions');
 
 // ---------- courier select dropdown ----------
 function renderCourierSelect(){
@@ -266,10 +310,22 @@ document.getElementById('addZoneBtn').addEventListener('click', async ()=>{
 });
 
 // ---------- search ----------
-function doSearch(query){
-  const resEl = document.getElementById('searchResult');
-  const q = normalize(query);
-  if(!q){ resEl.innerHTML=''; return; }
+function findRegionForSubArea(q){
+  // look through aliases for a sub-area matching the query
+  let best = null;
+  Object.keys(aliases).forEach(sub=>{
+    const nsub = normalize(sub);
+    if(nsub.includes(q) || q.includes(nsub)){
+      if(!best || nsub.length > normalize(best.sub).length){
+        best = { sub, region: aliases[sub] };
+      }
+    }
+  });
+  return best;
+}
+
+function findCouriersForZone(qOrRegion){
+  const q = normalize(qOrRegion);
   let matches = [];
   Object.keys(data).forEach(courier=>{
     data[courier].forEach(zone=>{
@@ -279,20 +335,64 @@ function doSearch(query){
       }
     });
   });
-  if(matches.length){
-    const primary = matches[0];
+  return matches;
+}
+
+function doSearch(query){
+  const resEl = document.getElementById('searchResult');
+  const q = normalize(query);
+  if(!q){ resEl.innerHTML=''; return; }
+
+  // Step 1: try a DIRECT match against courier zones first (e.g. "المنطقة التاسعة"
+  // might itself be a courier's assigned zone, not just a sub-area of something bigger).
+  const directMatches = findCouriersForZone(query);
+  // Step 2: does this query also have a known parent/city label to show for context?
+  const aliasHit = findRegionForSubArea(q);
+
+  if(directMatches.length){
+    const primary = directMatches[0];
+    const belongsLine = aliasHit
+      ? `<div class="small">"${aliasHit.sub}" تابعة لمنطقة <b>${aliasHit.region}</b></div>`
+      : '';
     resEl.innerHTML = `<div class="result found">
+      ${belongsLine}
       <div class="big">${primary.courier}</div>
       <div class="small">مسؤول عن "${primary.zone}"</div>
-    </div>` + (matches.length>1 ? `<div class="search-list">${matches.slice(1).map(m=>`<div class="search-item"><span>${m.zone}</span><b>${m.courier}</b></div>`).join('')}</div>` : '');
-    speak(`${primary.courier} هو المسؤول عن ${primary.zone}`);
-  } else {
-    resEl.innerHTML = `<div class="result notfound">
-      <div class="big">مفيش نتيجة</div>
-      <div class="small">مفيش مندوب مسجل ليه المنطقة دي لحد دلوقتي</div>
-    </div>`;
-    speak('معنديش بيانات عن المنطقة دي');
+    </div>` + (directMatches.length>1 ? `<div class="search-list">${directMatches.slice(1).map(m=>`<div class="search-item"><span>${m.zone}</span><b>${m.courier}</b></div>`).join('')}</div>` : '');
+    const speakText = aliasHit
+      ? `${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}، تابع مندوب ${primary.courier}`
+      : `${primary.courier} هو المسؤول عن ${primary.zone}`;
+    speak(speakText);
+    return;
   }
+
+  // Step 3: no direct zone match — fall back to resolving via the parent region
+  // (e.g. "الياسمين" isn't itself a courier zone, but its parent "التجمع الأول" is).
+  if(aliasHit){
+    const regionMatches = findCouriersForZone(aliasHit.region);
+    if(regionMatches.length){
+      const primary = regionMatches[0];
+      resEl.innerHTML = `<div class="result found">
+        <div class="small">"${aliasHit.sub}" تابعة لمنطقة <b>${aliasHit.region}</b></div>
+        <div class="big">${primary.courier}</div>
+        <div class="small">مسؤول عن "${primary.zone}"</div>
+      </div>` + (regionMatches.length>1 ? `<div class="search-list">${regionMatches.slice(1).map(m=>`<div class="search-item"><span>${m.zone}</span><b>${m.courier}</b></div>`).join('')}</div>` : '');
+      speak(`${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}، والمسؤول عنها ${primary.courier}`);
+    } else {
+      resEl.innerHTML = `<div class="result notfound">
+        <div class="small">"${aliasHit.sub}" تابعة لمنطقة <b>${aliasHit.region}</b></div>
+        <div class="big">لسه مفيش مندوب متأكد لـ ${aliasHit.region}</div>
+      </div>`;
+      speak(`${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}، بس لسه معنديش مندوب متأكد للمنطقة دي`);
+    }
+    return;
+  }
+
+  resEl.innerHTML = `<div class="result notfound">
+    <div class="big">مفيش نتيجة</div>
+    <div class="small">مفيش مندوب مسجل ليه المنطقة دي لحد دلوقتي</div>
+  </div>`;
+  speak('معنديش بيانات عن المنطقة دي');
 }
 document.getElementById('searchBtn').addEventListener('click', ()=>{
   doSearch(document.getElementById('searchInput').value);
@@ -358,15 +458,64 @@ function renderList(){
     });
   });
 }
-function renderAll(){ renderCourierSelect(); renderList(); renderDatalists(); }
+function renderAll(){ renderCourierSelect(); renderList(); renderDatalists(); renderAliasList(); }
 function renderDatalists(){
   const courierList = document.getElementById('courierList');
   const zoneList = document.getElementById('zoneList');
+  const regionList = document.getElementById('regionList');
   const names = Object.keys(data);
   courierList.innerHTML = names.map(n=>`<option value="${n}">`).join('');
   const allZones = new Set();
   names.forEach(n=> data[n].forEach(z=> allZones.add(z)));
   zoneList.innerHTML = Array.from(allZones).map(z=>`<option value="${z}">`).join('');
+  if(regionList){
+    const allRegions = new Set([...allZones, ...Object.values(aliases)]);
+    regionList.innerHTML = Array.from(allRegions).map(z=>`<option value="${z}">`).join('');
+  }
+}
+
+// ---------- region aliases (sub-area -> parent region) ----------
+document.getElementById('addAliasBtn').addEventListener('click', async ()=>{
+  const sub = document.getElementById('subAreaInput').value.trim();
+  const region = document.getElementById('parentRegionInput').value.trim();
+  const statusEl = document.getElementById('aliasStatus');
+  if(!sub || !region){ statusEl.textContent = '⚠ لازم تكتب اسم المنطقة الفرعية والمنطقة الكبرى'; return; }
+  aliases[sub] = region;
+  await saveAliases();
+  statusEl.textContent = `✅ "${sub}" بقت تابعة لـ "${region}"`;
+  document.getElementById('subAreaInput').value = '';
+  document.getElementById('parentRegionInput').value = '';
+  renderAliasList();
+  renderDatalists();
+});
+function renderAliasList(){
+  const el = document.getElementById('aliasListCard');
+  if(!el) return;
+  const subs = Object.keys(aliases);
+  if(!subs.length){ el.innerHTML = '<div class="empty">لسه معملتش أي ربط بين مناطق فرعية ومناطق كبرى</div>'; return; }
+  // group by parent region for readability
+  const byRegion = {};
+  subs.forEach(s=>{
+    const r = aliases[s];
+    if(!byRegion[r]) byRegion[r] = [];
+    byRegion[r].push(s);
+  });
+  el.innerHTML = Object.keys(byRegion).map(region=>`
+    <div class="courier-card">
+      <div class="courier-name"><span>${region}</span></div>
+      <div class="zones-wrap">
+        ${byRegion[region].map(s=>`<span class="zonepill">${s} <button data-sub="${s}">✕</button></span>`).join('')}
+      </div>
+    </div>
+  `).join('');
+  el.querySelectorAll('.zonepill button').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      delete aliases[b.dataset.sub];
+      await saveAliases();
+      renderAliasList();
+      renderDatalists();
+    });
+  });
 }
 
 if('serviceWorker' in navigator){
@@ -486,6 +635,48 @@ document.getElementById('exportBtn').addEventListener('click', ()=>{
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'المناديب');
   XLSX.writeFile(wb, 'دليل_المناديب.xlsx');
+});
+
+// ---------- alias import / export (sub-area -> parent region) ----------
+document.getElementById('importAliasBtn').addEventListener('click', ()=>{
+  const fileInput = document.getElementById('aliasExcelFile');
+  const statusEl = document.getElementById('importAliasStatus');
+  const file = fileInput.files[0];
+  if(!file){ statusEl.textContent = '⚠ اختار ملف الأول'; return; }
+  const reader = new FileReader();
+  reader.onload = async (e)=>{
+    try{
+      const wb = XLSX.read(e.target.result, {type:'array'});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, {header:1});
+      let count = 0;
+      rows.forEach((row, i)=>{
+        if(i===0) return;
+        const sub = (row[0]||'').toString().trim();
+        const region = (row[1]||'').toString().trim();
+        if(!sub || !region) return;
+        aliases[sub] = region;
+        count++;
+      });
+      await saveAliases();
+      statusEl.textContent = `✅ تم استيراد ${count} ربط منطقة`;
+      renderAll();
+    }catch(err){
+      statusEl.textContent = '⚠ حصل خطأ في قراءة الملف — تأكد إنه xlsx أو csv سليم';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+document.getElementById('exportAliasBtn').addEventListener('click', ()=>{
+  const rows = [['المنطقة الفرعية','المنطقة الكبرى']];
+  Object.keys(aliases).forEach(sub=>{
+    rows.push([sub, aliases[sub]]);
+  });
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'المناطق');
+  XLSX.writeFile(wb, 'خريطة_المناطق.xlsx');
 });
 
 wireMic('micCourier','courierInput', t=>{ selectedCourier = t.trim(); });
