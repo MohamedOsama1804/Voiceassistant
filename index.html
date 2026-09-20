@@ -172,6 +172,7 @@
       </button>
       <div id="searchResult"></div>
       <div class="status" id="searchStatus"></div>
+      <div class="hint" id="voiceInfo"></div>
     </div>
     <div class="card" style="text-align:center;">
       <div class="label" style="margin-bottom:10px;" data-i18n="continuousLabel">Continuous mode — tap once, keep asking hands-free</div>
@@ -776,11 +777,40 @@ function speak(text){
 }
 // Search results are always spoken in Arabic — real field users search in
 // Egyptian colloquial Arabic regardless of the UI language toggle.
+// Cache the best available Arabic voice once the browser reports its voice list
+// (on Android this can arrive asynchronously via onvoiceschanged).
+let bestArabicVoice = null;
+function pickBestArabicVoice(){
+  if(!('speechSynthesis' in window)) return null;
+  const voices = speechSynthesis.getVoices() || [];
+  // Prefer a true Egyptian voice if the device/browser has one installed.
+  let v = voices.find(v=> /^ar[-_]eg/i.test(v.lang));
+  if(!v) v = voices.find(v=> /^ar/i.test(v.lang)); // any Arabic voice as fallback
+  return v || null;
+}
+if('speechSynthesis' in window){
+  bestArabicVoice = pickBestArabicVoice();
+  speechSynthesis.onvoiceschanged = ()=>{ bestArabicVoice = pickBestArabicVoice(); updateVoiceInfo(); };
+}
+function updateVoiceInfo(){
+  const el = document.getElementById('voiceInfo');
+  if(!el) return;
+  if(bestArabicVoice){
+    const isEgyptian = /^ar[-_]eg/i.test(bestArabicVoice.lang);
+    el.textContent = isEgyptian
+      ? `🔊 صوت مصري متاح: ${bestArabicVoice.name}`
+      : `🔊 صوت متاح: ${bestArabicVoice.name} (${bestArabicVoice.lang}) — مش مصري لسه`;
+  } else {
+    el.textContent = '🔊 لسه مفيش صوت عربي اتحمّل';
+  }
+}
+updateVoiceInfo();
 function speakAr(text){
   try{
     if(!('speechSynthesis' in window)) return;
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'ar-SA';
+    if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; }
+    else { u.lang = 'ar-SA'; }
     speechSynthesis.cancel(); speechSynthesis.speak(u);
   }catch(e){}
 }
