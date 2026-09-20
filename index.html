@@ -676,8 +676,20 @@ document.getElementById('importBtn').addEventListener('click', ()=>{
     try{
       const wb = XLSX.read(e.target.result, {type:'array'});
       let cCount=0, zCount=0, aCount=0;
-      if(wb.SheetNames.includes('Couriers')){
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets['Couriers'], {header:1});
+      // Find the couriers sheet: prefer one literally named "Couriers", else
+      // any sheet whose name mentions courier/مندوب/مناديب, else just the first sheet.
+      const courierSheetName = wb.SheetNames.find(n=> n==='Couriers')
+        || wb.SheetNames.find(n=> /courier|مندوب|مناديب/i.test(n))
+        || wb.SheetNames[0];
+      // Regions sheet: literally "Regions", else mentions region/منطقة, else the
+      // next sheet after the couriers one (if any).
+      const courierIdx = wb.SheetNames.indexOf(courierSheetName);
+      const regionSheetName = wb.SheetNames.find(n=> n==='Regions')
+        || wb.SheetNames.find(n=> /region|منطقة|مناطق/i.test(n) && n!==courierSheetName)
+        || wb.SheetNames[courierIdx+1] || null;
+
+      if(courierSheetName){
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[courierSheetName], {header:1});
         rows.forEach((row,i)=>{
           if(i===0) return;
           const courier = (row[0]||'').toString().trim();
@@ -689,8 +701,8 @@ document.getElementById('importBtn').addEventListener('click', ()=>{
           zones.forEach(z=>{ if(!data[courier].some(x=>normalize(x)===normalize(z))){ data[courier].push(z); zCount++; } });
         });
       }
-      if(wb.SheetNames.includes('Regions')){
-        const rows2 = XLSX.utils.sheet_to_json(wb.Sheets['Regions'], {header:1});
+      if(regionSheetName && wb.Sheets[regionSheetName]){
+        const rows2 = XLSX.utils.sheet_to_json(wb.Sheets[regionSheetName], {header:1});
         rows2.forEach((row,i)=>{
           if(i===0) return;
           const sub = (row[0]||'').toString().trim();
@@ -700,7 +712,7 @@ document.getElementById('importBtn').addEventListener('click', ()=>{
         });
       }
       await saveData(); await saveAliases();
-      st.textContent = `✅ ${cCount} couriers, ${zCount} zones, ${aCount} region links`;
+      st.textContent = `✅ ${cCount} couriers, ${zCount} zones, ${aCount} region links (sheets used: ${courierSheetName}${regionSheetName ? ', '+regionSheetName : ''})`;
     }catch(err){ st.textContent = '⚠ ' + err.message; }
   };
   reader.readAsArrayBuffer(file);
