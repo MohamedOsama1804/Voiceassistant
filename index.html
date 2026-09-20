@@ -105,6 +105,13 @@
   .authGate svg{width:32px;height:32px;margin-bottom:10px;color:var(--text-dim);}
 
   ::-webkit-scrollbar{width:6px;} ::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px;}
+
+  .fieldModeRow{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--line);}
+  .switch{width:42px;height:24px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);position:relative;cursor:pointer;flex:0 0 auto;padding:0;}
+  .switch .knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--text-dim);transition:transform .15s, background .15s;}
+  .switch[aria-checked="true"]{background:var(--accent);border-color:var(--accent);}
+  .switch[aria-checked="true"] .knob{transform:translateX(18px);background:#fff;}
+  [dir="rtl"] .switch[aria-checked="true"] .knob{transform:translateX(-18px);}
 </style>
 </head>
 <body>
@@ -150,6 +157,10 @@
   <!-- SEARCH (public) -->
   <div id="paneSearch">
     <div class="card">
+      <div class="fieldModeRow">
+        <span class="label" style="margin:0;" data-i18n="fieldModeLabel">Field Mode — courier name only</span>
+        <button class="switch" id="fieldModeToggle" role="switch" aria-checked="false"><span class="knob"></span></button>
+      </div>
       <div class="label" data-i18n="searchLabel">Type or say an area / street name</div>
       <div class="row">
         <input type="text" id="searchInput" data-i18n-ph="searchPlaceholder" placeholder="e.g. Nasr City, Zone 9...">
@@ -298,6 +309,7 @@ const translations = {
     tabExcel:"Excel", tabMissed:"Missed",
     searchLabel:"Type or say an area / street name", searchPlaceholder:"e.g. Nasr City, Zone 9...",
     searchBtn:"Find courier", continuousLabel:"Continuous mode — tap once, keep asking hands-free",
+    fieldModeLabel:"Field Mode — courier name only",
     continuousStart:"Start continuous mode", continuousStop:"Stop continuous mode",
     quickAddLabel:"Quick add: Courier - Zone1, Zone2", quickAddPh:"e.g. Ahmed Awad - Zone 6, Sheikh Zayed Hospital",
     quickAddBtn:"Add line", courierLabel:"Courier name", typeOrMic:"Type or use mic",
@@ -321,6 +333,7 @@ const translations = {
     tabExcel:"إكسل", tabMissed:"غير مجاب",
     searchLabel:"اكتب أو قول اسم المنطقة أو الشارع", searchPlaceholder:"مثال: مدينة نصر، المنطقة 9...",
     searchBtn:"دور على المندوب", continuousLabel:"الوضع المستمر — دوس مرة واحدة وكمّل تسأل",
+    fieldModeLabel:"وضع الميدان — اسم المندوب بس",
     continuousStart:"ابدأ الوضع المستمر", continuousStop:"إيقاف الوضع المستمر",
     quickAddLabel:"إضافة سريعة: المندوب - منطقة1, منطقة2", quickAddPh:"مثال: أحمد عوض - الحي السادس, مستشفى الشيخ زايد",
     quickAddBtn:"إضافة السطر", courierLabel:"اسم المندوب", typeOrMic:"اكتب أو استخدم المايك",
@@ -612,41 +625,64 @@ function doSearch(query){
 
   if(directMatches.length){
     const primary = directMatches[0];
-    const belongsLine = aliasHit ? `<div class="small">"${aliasHit.sub}" ${t('belongsTo')} <b>${aliasHit.region}</b></div>` : '';
-    resEl.innerHTML = `<div class="result found">${belongsLine}<div class="big">${primary.courier}</div><div class="small">${t('respFor')} "${primary.zone}"</div></div>` +
-      (directMatches.length>1 ? `<div class="search-list">${directMatches.slice(1).map(m=>`<div class="search-item"><span>${m.zone}</span><b>${m.courier}</b></div>`).join('')}</div>` : '');
-    speak(aliasHit ? `${aliasHit.sub} ${t('belongsTo')} ${aliasHit.region}, ${primary.courier}` : `${primary.courier}, ${primary.zone}`);
+    if(fieldMode){
+      resEl.innerHTML = `<div class="result found"><div class="big">${primary.courier}</div></div>`;
+      speakAr(primary.courier);
+    } else {
+      const belongsLine = aliasHit ? `<div class="small">"${aliasHit.sub}" تابعة لمنطقة <b>${aliasHit.region}</b></div>` : '';
+      resEl.innerHTML = `<div class="result found">${belongsLine}<div class="big">${primary.courier}</div><div class="small">مسؤول عن "${primary.zone}"</div></div>`;
+      speakAr(aliasHit ? `${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}، تابع مندوب ${primary.courier}` : `${primary.courier}، ${primary.zone}`);
+    }
     return;
   }
   if(aliasHit){
     const regionMatches = findCouriersForZone(aliasHit.region);
     if(regionMatches.length){
       const primary = regionMatches[0];
-      resEl.innerHTML = `<div class="result found"><div class="small">"${aliasHit.sub}" ${t('belongsTo')} <b>${aliasHit.region}</b></div><div class="big">${primary.courier}</div><div class="small">${t('respFor')} "${primary.zone}"</div></div>`;
-      speak(`${aliasHit.sub} ${t('belongsTo')} ${aliasHit.region}, ${primary.courier}`);
+      if(fieldMode){
+        resEl.innerHTML = `<div class="result found"><div class="big">${primary.courier}</div></div>`;
+        speakAr(primary.courier);
+      } else {
+        resEl.innerHTML = `<div class="result found"><div class="small">"${aliasHit.sub}" تابعة لمنطقة <b>${aliasHit.region}</b></div><div class="big">${primary.courier}</div><div class="small">مسؤول عن "${primary.zone}"</div></div>`;
+        speakAr(`${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}، تابع مندوب ${primary.courier}`);
+      }
       return;
     } else {
-      resEl.innerHTML = `<div class="result notfound"><div class="small">"${aliasHit.sub}" ${t('belongsTo')} <b>${aliasHit.region}</b></div><div class="big">${t('noCourierForRegion')} ${aliasHit.region}</div></div>`;
-      speak(`${aliasHit.sub} ${t('belongsTo')} ${aliasHit.region}`);
+      resEl.innerHTML = fieldMode
+        ? `<div class="result notfound"><div class="big">غير معروف</div></div>`
+        : `<div class="result notfound"><div class="small">"${aliasHit.sub}" تابعة لمنطقة <b>${aliasHit.region}</b></div><div class="big">لسه مفيش مندوب متأكد لـ ${aliasHit.region}</div></div>`;
+      speakAr(fieldMode ? 'غير معروف' : `${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}`);
       logMiss(query);
       return;
     }
   }
-  resEl.innerHTML = `<div class="result notfound"><div class="big">${t('noResult')}</div><div class="small">${t('noResultSub')}</div></div>`;
-  speak(t('noResult'));
+  resEl.innerHTML = `<div class="result notfound"><div class="big">غير معروف</div></div>`;
+  speakAr('غير معروف');
   logMiss(query);
 }
 document.getElementById('searchBtn').addEventListener('click', ()=> doSearch(document.getElementById('searchInput').value));
 document.getElementById('searchInput').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(e.target.value); });
 
-// ================= missed searches tab =================
+// ---- Field Mode toggle (persisted per device) ----
+let fieldMode = false;
+try{ fieldMode = localStorage.getItem('field-mode')==='1'; }catch(e){}
+const fieldModeToggle = document.getElementById('fieldModeToggle');
+function applyFieldModeUI(){ fieldModeToggle.setAttribute('aria-checked', fieldMode ? 'true' : 'false'); }
+applyFieldModeUI();
+fieldModeToggle.addEventListener('click', ()=>{
+  fieldMode = !fieldMode;
+  try{ localStorage.setItem('field-mode', fieldMode ? '1' : '0'); }catch(e){}
+  applyFieldModeUI();
+});
+
+// ================= missed searches tab (always Arabic — real users search in Egyptian Arabic) =================
 function renderMissed(){
   missedRef.once('value').then(snap=>{
     const val = snap.val() || {};
     const rows = Object.values(val).sort((a,b)=> b.count - a.count);
     const wrap = document.getElementById('missedTableWrap');
-    if(!rows.length){ wrap.innerHTML = `<div class="empty">${t('noMissed')}</div>`; return; }
-    wrap.innerHTML = `<table class="missTable"><thead><tr><th>Term</th><th>Count</th><th>Last seen</th><th></th></tr></thead><tbody>
+    if(!rows.length){ wrap.innerHTML = `<div class="empty">لا توجد عمليات بحث فاشلة مسجلة</div>`; return; }
+    wrap.innerHTML = `<table class="missTable" dir="rtl"><thead><tr><th>المصطلح</th><th>العدد</th><th>آخر ظهور</th><th></th></tr></thead><tbody>
       ${rows.map(r=>`<tr><td>${r.term}</td><td class="count">${r.count}</td><td>${new Date(r.lastSeen).toLocaleDateString()}</td><td><button class="del" data-term="${r.term}" style="color:var(--danger);background:none;border:none;cursor:pointer;">✕</button></td></tr>`).join('')}
       </tbody></table>`;
     wrap.querySelectorAll('.del').forEach(b=> b.onclick = ()=>{
@@ -660,7 +696,7 @@ document.getElementById('copyMissedBtn').addEventListener('click', ()=>{
   const rows = window._missedRows || [];
   const box = document.getElementById('missedCopyBox');
   box.style.display='block';
-  box.value = "Term\tCount\tLast seen\n" + rows.map(r=>`${r.term}\t${r.count}\t${new Date(r.lastSeen).toLocaleDateString()}`).join('\n');
+  box.value = "المصطلح\tالعدد\tآخر ظهور\n" + rows.map(r=>`${r.term}\t${r.count}\t${new Date(r.lastSeen).toLocaleDateString()}`).join('\n');
   box.select();
   try{ document.execCommand('copy'); }catch(e){}
 });
@@ -738,15 +774,25 @@ function speak(text){
     speechSynthesis.cancel(); speechSynthesis.speak(u);
   }catch(e){}
 }
+// Search results are always spoken in Arabic — real field users search in
+// Egyptian colloquial Arabic regardless of the UI language toggle.
+function speakAr(text){
+  try{
+    if(!('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ar-SA';
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  }catch(e){}
+}
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-function wireMic(btnId, targetInputId, onResult){
+function wireMic(btnId, targetInputId, onResult, forceLang){
   const btn = document.getElementById(btnId);
   if(!SpeechRec){ btn.style.display='none'; return; }
   let rec=null, listening=false;
   btn.addEventListener('click', ()=>{
     if(listening){ rec && rec.stop(); return; }
     rec = new SpeechRec();
-    rec.lang = lang==='ar' ? 'ar-EG' : 'en-US';
+    rec.lang = forceLang || (lang==='ar' ? 'ar-EG' : 'en-US');
     rec.interimResults=false; rec.maxAlternatives=1;
     rec.onstart=()=>{ listening=true; btn.classList.add('listening'); };
     rec.onend=()=>{ listening=false; btn.classList.remove('listening'); };
@@ -762,7 +808,8 @@ function wireMic(btnId, targetInputId, onResult){
 wireMic('micCourier','courierInput', t=>{ selectedCourier = t.trim(); });
 wireMic('micZone','zoneInput');
 wireMic('micQuick','quickInput');
-wireMic('micSearch','searchInput', t=> doSearch(t));
+// Search mic is ALWAYS Arabic (ar-EG), regardless of UI language toggle.
+wireMic('micSearch','searchInput', t=> doSearch(t), 'ar-EG');
 
 // continuous mode
 let continuousActive=false, continuousRec=null, lastResultIndex=0;
@@ -772,7 +819,7 @@ function startContinuousCycle(){
   if(!continuousActive || !SpeechRec) return;
   lastResultIndex=0;
   continuousRec = new SpeechRec();
-  continuousRec.lang = lang==='ar' ? 'ar-EG' : 'en-US';
+  continuousRec.lang = 'ar-EG'; // search voice is always Arabic
   continuousRec.continuous = true; continuousRec.interimResults=false; continuousRec.maxAlternatives=1;
   continuousRec.onstart=()=>{ contStatus.textContent='...'; };
   continuousRec.onerror=(e)=>{ contStatus.textContent = e.error; };
