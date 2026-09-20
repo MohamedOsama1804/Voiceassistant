@@ -1,5 +1,5 @@
-const CACHE_NAME = 'courier-directory-v1';
-const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE_NAME = 'courier-directory-v3';
+const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './xlsx.full.min.js'];
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -14,7 +14,17 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Network-first: always try to get the latest version from the server first.
+  // Only fall back to the cached copy if there's no internet connection.
+  // (Old version used cache-first, which kept showing stale code after updates
+  // until the user manually cleared site data.)
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((res) => {
+        const resClone = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
+        return res;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
