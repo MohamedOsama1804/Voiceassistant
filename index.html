@@ -163,6 +163,10 @@
         <span class="label" style="margin:0;" data-i18n="fieldModeLabel">Field Mode — courier name only</span>
         <button class="switch" id="fieldModeToggle" role="switch" aria-checked="false"><span class="knob"></span></button>
       </div>
+      <div class="label" data-i18n="regionFilterLabel">Limit search to a region (optional)</div>
+      <select id="regionFilterSelect" style="margin-bottom:10px;">
+        <option value="" data-i18n="regionFilterAll">All regions</option>
+      </select>
       <div class="label" data-i18n="searchLabel">Type or say an area / street name</div>
       <div class="row">
         <input type="text" id="searchInput" data-i18n-ph="searchPlaceholder" placeholder="e.g. Nasr City, Zone 9...">
@@ -239,6 +243,22 @@
   <!-- REGIONS (auth only) -->
   <div id="paneRegions" class="authOnly hidden" style="display:none;">
     <div class="card">
+      <div class="label" data-i18n="addRegionContentTitle" style="font-weight:600;color:var(--text);">Add a region with its content</div>
+      <div class="label" data-i18n="regionNameLabel" style="margin-top:8px;">Region name (new or existing)</div>
+      <input type="text" id="rcRegionInput" list="regionList" data-i18n-ph="regionNamePh" placeholder="e.g. First Settlement">
+      <div class="label" data-i18n="subAreaOptLabel">Sub-area (optional)</div>
+      <input type="text" id="rcSubAreaInput" data-i18n-ph="subAreaOptPh" placeholder="e.g. Al Yasmine — leave empty if none">
+      <div class="label" data-i18n="streetsLabel">Streets (one per line or comma-separated)</div>
+      <textarea id="rcStreetsInput" data-i18n-ph="streetsPh" placeholder="Street 1, Street 2..." style="width:100%;min-height:70px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:11px 12px;font-size:15px;font-family:var(--sans);margin-bottom:10px;"></textarea>
+      <div class="label" data-i18n="responsibleCourierLabel">Responsible courier</div>
+      <input type="text" id="rcCourierInput" list="courierList" data-i18n-ph="responsibleCourierPh" placeholder="Type or pick existing courier">
+      <button class="btn btn-primary" id="addRegionContentBtn" style="width:100%;margin-top:10px;" data-i18n="addRegionContentBtn">Save region content</button>
+      <div class="status" id="rcStatus"></div>
+    </div>
+    <div class="card" id="regionNavCard" style="display:none;">
+      <div class="row" id="regionNavRow" style="flex-wrap:wrap;gap:6px;"></div>
+    </div>
+    <div class="card">
       <div class="label" data-i18n="subAreaLabel">Sub-area name (e.g. Al Yasmine)</div>
       <input type="text" id="subAreaInput" data-i18n-ph="subAreaPh" placeholder="e.g. Al Yasmine">
       <div class="label" style="margin-top:10px;" data-i18n="parentRegionLabel">Belongs to region (e.g. First Settlement)</div>
@@ -264,6 +284,7 @@
     <div class="card">
       <div class="label" data-i18n="excelExportLabel">Export current data (unified template)</div>
       <button class="btn btn-outline" id="exportBtn" style="width:100%;" data-i18n="exportBtn">Export Excel</button>
+      <div class="status" id="exportStatus"></div>
     </div>
   </div>
 
@@ -272,7 +293,11 @@
     <div class="card">
       <div class="label" data-i18n="missedLabel">Searches with no result — sorted by how often they happened</div>
       <div id="missedTableWrap"><div class="empty" data-i18n="noMissed">No missed searches recorded</div></div>
-      <button class="btn btn-outline" id="copyMissedBtn" style="width:100%;margin-top:10px;" data-i18n="copyForExcel">Copy table for Excel</button>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn btn-outline" id="copyMissedBtn" data-i18n="copyForExcel">Copy table for Excel</button>
+        <button class="btn btn-danger" id="clearMissedBtn" data-i18n="clearMissed">Clear all</button>
+      </div>
+      <div class="status" id="missedClearStatus"></div>
       <textarea class="copyBox" id="missedCopyBox" readonly style="display:none;"></textarea>
     </div>
   </div>
@@ -338,6 +363,15 @@ const translations = {
     respFor:"responsible for", noResult:"No result", noResultSub:"No courier recorded for this area yet",
     belongsTo:"belongs to region", noCourierForRegion:"No confirmed courier for",
     loadingSpeech:"Browser has no voice support", listSearchPh:"Search a courier or an area...",
+    clearMissed:"Clear all", clearMissedConfirm:"Delete all missed-search records? This won't touch couriers or regions.",
+    regionFilterLabel:"Limit search to a region (optional)", regionFilterAll:"All regions",
+    exportWaiting:"Loading data, please wait…", exportError:"Export failed",
+    addRegionContentTitle:"Add a region with its content",
+    regionNameLabel:"Region name (new or existing)", regionNamePh:"e.g. First Settlement",
+    subAreaOptLabel:"Sub-area (optional)", subAreaOptPh:"e.g. Al Yasmine — leave empty if none",
+    streetsLabel:"Streets (one per line or comma-separated)", streetsPh:"Street 1, Street 2...",
+    responsibleCourierLabel:"Responsible courier", responsibleCourierPh:"Type or pick existing courier",
+    addRegionContentBtn:"Save region content", regionNavAll:"All",
   },
   ar: {
     appTitle:"دليل المناطق", tabSearch:"بحث", tabAdd:"إضافة", tabList:"المناديب", tabRegions:"المناطق",
@@ -362,6 +396,15 @@ const translations = {
     respFor:"مسؤول عن", noResult:"مفيش نتيجة", noResultSub:"مفيش مندوب مسجل للمنطقة دي لسه",
     belongsTo:"تابعة لمنطقة", noCourierForRegion:"لسه مفيش مندوب متأكد لـ",
     loadingSpeech:"المتصفح ده مش بيدعم الصوت", listSearchPh:"دور على مندوب أو منطقة...",
+    clearMissed:"مسح الكل", clearMissedConfirm:"هيتمسح كل سجل البحث الفاشل. مش هيأثر على بيانات المناديب أو المناطق. متأكد؟",
+    regionFilterLabel:"حصر البحث في منطقة معينة (اختياري)", regionFilterAll:"كل المناطق",
+    exportWaiting:"البيانات لسه بتحمّل، استنى ثانية...", exportError:"فشل التصدير",
+    addRegionContentTitle:"إضافة منطقة كبرى بكل محتواها",
+    regionNameLabel:"اسم المنطقة الكبرى (جديدة أو موجودة)", regionNamePh:"مثال: التجمع الأول",
+    subAreaOptLabel:"منطقة فرعية (اختياري)", subAreaOptPh:"مثال: الياسمين — سيبها فاضية لو مفيش",
+    streetsLabel:"الشوارع (سطر لكل واحد أو مفصولة بفاصلة)", streetsPh:"شارع 1, شارع 2...",
+    responsibleCourierLabel:"المندوب المسؤول", responsibleCourierPh:"اكتب أو اختار مندوب موجود",
+    addRegionContentBtn:"حفظ محتوى المنطقة", regionNavAll:"الكل",
   }
 };
 let lang = 'en';
@@ -379,6 +422,8 @@ function applyLang(){
   if(cs) cs.querySelector('option[value=""]') && (cs.querySelector('option[value=""]').textContent = t('pickCourier'));
   const cb = document.getElementById('continuousBtn');
   if(cb && !continuousActive) cb.querySelector('span').textContent = t('continuousStart');
+  if(typeof renderRegionFilterOptions==='function') renderRegionFilterOptions();
+  if(typeof renderRegionNav==='function' && currentTab==='regions') renderRegionNav();
 }
 document.getElementById('langToggle').addEventListener('click', ()=>{
   lang = lang==='en' ? 'ar' : 'en';
@@ -492,13 +537,22 @@ function matchesRangeZone(query, zoneStr){
 try{ const raw = localStorage.getItem(STORAGE_KEY); if(raw) data = JSON.parse(raw); }catch(e){}
 try{ const rawA = localStorage.getItem(ALIASES_KEY); if(rawA) aliases = JSON.parse(rawA); }catch(e){}
 
+// dataReady/aliasesReady flip to true only once the FIRST live snapshot from
+// Firebase has actually arrived. Before that, `data`/`aliases` may only hold
+// the local cache (which can be stale or empty on a fresh device/browser) —
+// exporting before this point is exactly what made Excel exports come out
+// incomplete (Known Issue #3), since the export read whatever was in memory
+// at that instant instead of waiting for the real, current data.
+let dataReady = false, aliasesReady = false;
 dataRef.on('value', snap=>{
   data = snap.val() || {};
+  dataReady = true;
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }catch(e){}
   renderAll();
 });
 aliasesRef.on('value', snap=>{
   aliases = snap.val() || {};
+  aliasesReady = true;
   try{ localStorage.setItem(ALIASES_KEY, JSON.stringify(aliases)); }catch(e){}
   renderAll();
 });
@@ -550,7 +604,7 @@ function showTab(name){
     document.getElementById('pane'+cap(k)).style.display = k===name ? '' : 'none';
   });
   if(name==='list') renderList();
-  if(name==='regions') renderAliasList();
+  if(name==='regions'){ renderAliasList(activeRegionNav || undefined); renderRegionNav(); }
   if(name==='missed') renderMissed();
   if(name==='excel') ensureXlsxLoaded();
 }
@@ -569,7 +623,7 @@ function ensureXlsxLoaded(){
 }
 
 // ================= render =================
-function renderAll(){ renderCourierSelect(); if(currentTab==='list') renderList(); renderDatalists(); if(currentTab==='regions') renderAliasList(); }
+function renderAll(){ renderCourierSelect(); if(currentTab==='list') renderList(); renderDatalists(); if(currentTab==='regions'){ renderAliasList(); renderRegionNav(); } renderRegionFilterOptions(); }
 function renderCourierSelect(){
   const sel = document.getElementById('courierSelect');
   const names = Object.keys(data);
@@ -691,19 +745,72 @@ document.getElementById('addAliasBtn').addEventListener('click', async ()=>{
   document.getElementById('subAreaInput').value='';
   document.getElementById('parentRegionInput').value='';
 });
-function renderAliasList(){
+function renderAliasList(activeRegion){
   const el = document.getElementById('aliasListCard');
   const subs = Object.keys(aliases);
   if(!subs.length){ el.innerHTML = `<div class="empty">${t('noLinks')}</div>`; return; }
   const byRegion = {};
   subs.forEach(s=>{ (byRegion[aliases[s]] = byRegion[aliases[s]]||[]).push(s); });
-  el.innerHTML = Object.keys(byRegion).map(region=>`
-    <div class="courier-card">
+  const regions = activeRegion ? [activeRegion].filter(r=> byRegion[r]) : Object.keys(byRegion);
+  el.innerHTML = regions.map(region=>`
+    <div class="courier-card" data-region-card="${region}">
       <div class="courier-name"><span>${region}</span></div>
       <div>${byRegion[region].map(s=>`<span class="zonepill">${s} <button data-s="${s}">✕</button></span>`).join('')}</div>
     </div>`).join('');
   el.querySelectorAll('.zonepill button').forEach(b=> b.onclick = async ()=>{ delete aliases[b.dataset.s]; await saveAliases(); });
 }
+// Region navigator: quick pills across all known major regions so the admin
+// can jump between them instead of scrolling one long merged list — this is
+// purely a view over the existing aliases node, no new data structure.
+let activeRegionNav = '';
+function renderRegionNav(){
+  const card = document.getElementById('regionNavCard');
+  const row = document.getElementById('regionNavRow');
+  const regions = Array.from(new Set(Object.values(aliases)));
+  if(!regions.length){ card.style.display='none'; return; }
+  card.style.display='';
+  if(activeRegionNav && !regions.includes(activeRegionNav)) activeRegionNav='';
+  row.innerHTML = `<button class="tab${!activeRegionNav?' active':''}" data-region="" style="flex:0 0 auto;">${t('regionNavAll')}</button>` +
+    regions.map(r=>`<button class="tab${activeRegionNav===r?' active':''}" data-region="${r}" style="flex:0 0 auto;">${r}</button>`).join('');
+  row.querySelectorAll('button[data-region]').forEach(b=> b.onclick = ()=>{
+    activeRegionNav = b.dataset.region;
+    renderRegionNav();
+    renderAliasList(activeRegionNav || undefined);
+  });
+}
+// Compound "Region → Sub-area → Streets → responsible courier" save, in one
+// step (Known Issue #5), built entirely on the existing two nodes:
+//  - aliases[subArea] = region            (only if a sub-area was given)
+//  - data[courier] gets the streets pushed into it, PLUS the region/sub-area
+//    name itself so a bare search for "التجمع الأول" or "الياسمين" resolves
+//    straight to this courier too (matches the fallback search already used
+//    for region names — see findCouriersForZone(aliasHit.region) in doSearch).
+document.getElementById('addRegionContentBtn').addEventListener('click', async ()=>{
+  const st = document.getElementById('rcStatus');
+  const region = document.getElementById('rcRegionInput').value.trim();
+  const sub = document.getElementById('rcSubAreaInput').value.trim();
+  const courier = document.getElementById('rcCourierInput').value.trim();
+  const streetsRaw = document.getElementById('rcStreetsInput').value.trim();
+  if(!region || !courier){ st.textContent='⚠'; return; }
+  const streets = streetsRaw.split(/[,،\n]/).map(z=>z.trim()).filter(Boolean);
+
+  if(sub && sub!==region){ aliases[sub] = region; await saveAliases(); }
+
+  if(!data[courier]) data[courier] = [];
+  let added = 0;
+  const addZoneIfNew = z=>{ if(z && !data[courier].some(x=>normalize(x)===normalize(z))){ data[courier].push(z); added++; } };
+  addZoneIfNew(region);         // so a bare region search resolves to this courier
+  if(sub) addZoneIfNew(sub);    // same, for the sub-area name
+  streets.forEach(addZoneIfNew);
+  await saveData();
+
+  st.textContent = `✅ ${added}`;
+  document.getElementById('rcSubAreaInput').value='';
+  document.getElementById('rcStreetsInput').value='';
+  activeRegionNav = region;
+  renderRegionNav();
+  renderAliasList(region);
+});
 
 // ================= search + missed logging =================
 function findRegionForSubArea(q){
@@ -770,6 +877,45 @@ function findCouriersForZone(qOrRegion){
   if(bestMatch) matches.push(bestMatch);
   return matches;
 }
+// ---------- optional region-filtered search (Known Issue #4) ----------
+// Streets can repeat across major regions (e.g. "معز الدولة" exists both in
+// مدينة نصر and في التجمع الأول). We don't have a dedicated per-street region
+// field in the data model, so we reuse the EXISTING sub-area→region alias
+// table (Section E) to guess which region a given zone label belongs to.
+function getRegionForZoneLabel(zoneLabel){
+  const nz = normalize(zoneLabel);
+  let best = null;
+  Object.keys(aliases).forEach(sub=>{
+    const nsub = normalize(sub);
+    if(nz.includes(nsub) || nsub.includes(nz)){
+      if(!best || nsub.length > normalize(best).length) best = sub;
+    }
+  });
+  return best ? aliases[best] : null;
+}
+// Narrow a match list down to a chosen major region. If NONE of the matches
+// carry a resolvable region tag yet (aliases not filled in for that street),
+// we fall back to the untouched list instead of hiding a real result —
+// the filter is meant to disambiguate, not to hide data the admin hasn't
+// tagged yet.
+function filterMatchesByRegion(matches, regionFilter){
+  if(!regionFilter) return matches;
+  const nf = normalize(regionFilter);
+  const tagged = matches.filter(m=>{
+    if(normalize(m.zone)===nf) return true; // the zone itself IS the region
+    const tag = getRegionForZoneLabel(m.zone);
+    return tag && normalize(tag)===nf;
+  });
+  return tagged.length ? tagged : matches;
+}
+function renderRegionFilterOptions(){
+  const sel = document.getElementById('regionFilterSelect');
+  if(!sel) return;
+  const prev = sel.value;
+  const regions = Array.from(new Set(Object.values(aliases))).sort((a,b)=> a.localeCompare(b,'ar'));
+  sel.innerHTML = `<option value="">${t('regionFilterAll')}</option>` + regions.map(r=>`<option value="${r}">${r}</option>`).join('');
+  if(regions.includes(prev)) sel.value = prev;
+}
 function logMiss(term){
   const key = normalize(term).replace(/[.#$\[\]\/]/g,'_').slice(0,120) || 'empty';
   const ref = missedRef.child(key);
@@ -778,49 +924,62 @@ function logMiss(term){
     return { term, count:1, firstSeen: Date.now(), lastSeen: Date.now() };
   });
 }
-function doSearch(query){
+// `onSpeechDone` is optional: when given (continuous mode passes it), it
+// fires exactly once, right after the spoken answer finishes (or immediately
+// if nothing was said), so the caller knows precisely when it's safe to
+// listen again — see Known Issue #2 fix in the continuous-mode block below.
+function doSearch(query, onSpeechDone){
   const resEl = document.getElementById('searchResult');
   query = expandColloquialNumbers(query); // "تلات سبعات" -> "777"
   const q = normalize(query);
-  if(!q){ resEl.innerHTML=''; return; }
-  const directMatches = findCouriersForZone(query);
-  const aliasHit = findRegionForSubArea(q);
+  if(!q){ resEl.innerHTML=''; if(onSpeechDone) onSpeechDone(); return; }
+
+  const regionFilterEl = document.getElementById('regionFilterSelect');
+  const regionFilter = regionFilterEl ? regionFilterEl.value : '';
+
+  let directMatches = findCouriersForZone(query);
+  if(regionFilter) directMatches = filterMatchesByRegion(directMatches, regionFilter);
+  let aliasHit = findRegionForSubArea(q);
+  // If a region filter is active and the resolved alias points at a
+  // DIFFERENT major region, it's out of scope for this filtered search.
+  if(aliasHit && regionFilter && normalize(aliasHit.region)!==normalize(regionFilter)) aliasHit = null;
 
   if(directMatches.length){
     const primary = directMatches[0];
     if(fieldMode){
       resEl.innerHTML = `<div class="result found"><div class="big">${primary.courier}</div></div>`;
-      speakAr(primary.courier);
+      speakAr(primary.courier, onSpeechDone);
     } else {
       const belongsLine = aliasHit ? `<div class="small">"${aliasHit.sub}" تابعة لمنطقة <b>${aliasHit.region}</b></div>` : '';
       resEl.innerHTML = `<div class="result found">${belongsLine}<div class="big">${primary.courier}</div><div class="small">مسؤول عن "${primary.zone}"</div></div>`;
-      speakAr(aliasHit ? `${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}، تابع مندوب ${primary.courier}` : `${primary.courier}، ${primary.zone}`);
+      speakAr(aliasHit ? `${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}، تابع مندوب ${primary.courier}` : `${primary.courier}، ${primary.zone}`, onSpeechDone);
     }
     return;
   }
   if(aliasHit){
-    const regionMatches = findCouriersForZone(aliasHit.region);
+    let regionMatches = findCouriersForZone(aliasHit.region);
+    if(regionFilter) regionMatches = filterMatchesByRegion(regionMatches, regionFilter);
     if(regionMatches.length){
       const primary = regionMatches[0];
       if(fieldMode){
         resEl.innerHTML = `<div class="result found"><div class="big">${primary.courier}</div></div>`;
-        speakAr(primary.courier);
+        speakAr(primary.courier, onSpeechDone);
       } else {
         resEl.innerHTML = `<div class="result found"><div class="small">"${aliasHit.sub}" تابعة لمنطقة <b>${aliasHit.region}</b></div><div class="big">${primary.courier}</div><div class="small">مسؤول عن "${primary.zone}"</div></div>`;
-        speakAr(`${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}، تابع مندوب ${primary.courier}`);
+        speakAr(`${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}، تابع مندوب ${primary.courier}`, onSpeechDone);
       }
       return;
     } else {
       resEl.innerHTML = fieldMode
         ? `<div class="result notfound"><div class="big">غير معروف</div></div>`
         : `<div class="result notfound"><div class="small">"${aliasHit.sub}" تابعة لمنطقة <b>${aliasHit.region}</b></div><div class="big">لسه مفيش مندوب متأكد لـ ${aliasHit.region}</div></div>`;
-      speakAr(fieldMode ? 'غير معروف' : `${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}`);
+      speakAr(fieldMode ? 'غير معروف' : `${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}`, onSpeechDone);
       logMiss(query);
       return;
     }
   }
   resEl.innerHTML = `<div class="result notfound"><div class="big">غير معروف</div></div>`;
-  speakAr('غير معروف');
+  speakAr('غير معروف', onSpeechDone);
   logMiss(query);
 }
 document.getElementById('searchBtn').addEventListener('click', ()=> doSearch(document.getElementById('searchInput').value));
@@ -855,6 +1014,15 @@ function renderMissed(){
     window._missedRows = rows;
   });
 }
+document.getElementById('clearMissedBtn').addEventListener('click', async ()=>{
+  const st = document.getElementById('missedClearStatus');
+  if(!confirm(t('clearMissedConfirm'))) return;
+  try{
+    await missedRef.remove(); // only clears /missed-searches — couriers & regions untouched
+    st.textContent = '✅';
+    renderMissed();
+  }catch(e){ st.textContent = '⚠ ' + e.message; }
+});
 document.getElementById('copyMissedBtn').addEventListener('click', ()=>{
   const rows = window._missedRows || [];
   const box = document.getElementById('missedCopyBox');
@@ -917,15 +1085,28 @@ document.getElementById('importBtn').addEventListener('click', ()=>{
   reader.readAsArrayBuffer(file);
 });
 document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const st = document.getElementById('exportStatus');
   if(!xlsxLoaded){ ensureXlsxLoaded(); setTimeout(()=>document.getElementById('exportBtn').click(), 500); return; }
-  const wb = XLSX.utils.book_new();
-  const rows1 = [['Courier','Zones']];
-  Object.keys(data).forEach(c=> rows1.push([c, data[c].join(', ')]));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows1), 'Couriers');
-  const rows2 = [['SubArea','ParentRegion']];
-  Object.keys(aliases).forEach(s=> rows2.push([s, aliases[s]]));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows2), 'Regions');
-  XLSX.writeFile(wb, 'directory_template.xlsx');
+  // Wait for the real Firebase snapshot before exporting — otherwise this can
+  // dump a stale/empty local cache instead of the actual current data.
+  if(!dataReady || !aliasesReady){
+    st.textContent = t('exportWaiting');
+    setTimeout(()=>document.getElementById('exportBtn').click(), 400);
+    return;
+  }
+  try{
+    const wb = XLSX.utils.book_new();
+    const rows1 = [['Courier','Zones']];
+    Object.keys(data).forEach(c=> rows1.push([c, (data[c]||[]).join(', ')]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows1), 'Couriers');
+    const rows2 = [['SubArea','ParentRegion']];
+    Object.keys(aliases).forEach(s=> rows2.push([s, aliases[s]]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows2), 'Regions');
+    XLSX.writeFile(wb, 'directory_template.xlsx');
+    st.textContent = `✅ ${Object.keys(data).length} couriers, ${Object.keys(aliases).length} region links`;
+  }catch(err){
+    st.textContent = '⚠ ' + t('exportError') + ': ' + err.message;
+  }
 });
 
 // ================= speech =================
@@ -967,14 +1148,15 @@ function updateVoiceInfo(){
   }
 }
 updateVoiceInfo();
-function speakAr(text){
+function speakAr(text, onDone){
   try{
-    if(!('speechSynthesis' in window)) return;
+    if(!('speechSynthesis' in window)){ if(onDone) onDone(); return; }
     const u = new SpeechSynthesisUtterance(text);
     if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; }
     else { u.lang = 'ar-SA'; }
+    if(onDone){ u.onend = onDone; u.onerror = onDone; }
     speechSynthesis.cancel(); speechSynthesis.speak(u);
-  }catch(e){}
+  }catch(e){ if(onDone) onDone(); }
 }
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 function wireMic(btnId, targetInputId, onResult, forceLang){
@@ -1004,7 +1186,15 @@ wireMic('micQuick','quickInput');
 wireMic('micSearch','searchInput', t=> doSearch(t), 'ar-EG');
 
 // continuous mode
-let continuousActive=false, continuousRec=null, lastResultIndex=0;
+// Root cause of Known Issue #2 (the "unknown" answer repeating 2-3 times,
+// and no breathing room between questions): the recognizer kept `continuous`
+// listening switched on WHILE the device spoke its answer out loud, so the
+// mic picked up the TTS voice itself, transcribed it as a new "question",
+// searched again, spoke the same answer again, and so on. `pausedForSpeech`
+// stops the mic before speaking and only restarts it once the utterance has
+// genuinely finished, so each spoken input is handled once and the person
+// gets a clean, silent window in which to ask the next question.
+let continuousActive=false, continuousRec=null, lastResultIndex=0, pausedForSpeech=false;
 const contBtn = document.getElementById('continuousBtn');
 const contStatus = document.getElementById('continuousStatus');
 function startContinuousCycle(){
@@ -1020,18 +1210,31 @@ function startContinuousCycle(){
       if(ev.results[i].isFinal){
         const tr = ev.results[i][0].transcript;
         document.getElementById('searchInput').value = tr;
-        doSearch(tr);
+        // Stop listening immediately so the spoken answer can't be
+        // re-captured as the next question — this is the whole fix.
+        pausedForSpeech = true;
+        try{ continuousRec.stop(); }catch(e){}
+        doSearch(tr, ()=>{
+          pausedForSpeech = false;
+          if(continuousActive) startContinuousCycle();
+        });
+        break; // this recognizer instance is being discarded — ignore any
+               // further queued results from it.
       }
     }
     lastResultIndex = ev.results.length;
   };
   continuousRec.onend=()=>{
-    if(continuousActive){ try{ startContinuousCycle(); }catch(e){ stopContinuous(); } }
+    // Only auto-restart here if we stopped for a reason OTHER than "we're
+    // about to speak the answer" — that case restarts itself, from doSearch's
+    // onSpeechDone callback above, once speaking is actually finished.
+    if(continuousActive && !pausedForSpeech){ try{ startContinuousCycle(); }catch(e){ stopContinuous(); } }
   };
   try{ continuousRec.start(); }catch(e){}
 }
 function stopContinuous(){
   continuousActive=false;
+  pausedForSpeech=false;
   contBtn.querySelector('span').textContent = t('continuousStart');
   contBtn.classList.remove('btn-danger'); contBtn.classList.add('btn-outline');
   if(continuousRec){ try{ continuousRec.stop(); }catch(e){} }
