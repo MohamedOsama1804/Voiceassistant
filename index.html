@@ -107,6 +107,8 @@
   ::-webkit-scrollbar{width:6px;} ::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px;}
 
   .fieldModeRow{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--line);}
+  .courier-card.highlighted{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+  .zonepill.highlighted{background:#152238;border-color:var(--accent);color:var(--accent);}
   .switch{width:42px;height:24px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);position:relative;cursor:pointer;flex:0 0 auto;padding:0;}
   .switch .knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--text-dim);transition:transform .15s, background .15s;}
   .switch[aria-checked="true"]{background:var(--accent);border-color:var(--accent);}
@@ -223,6 +225,14 @@
 
   <!-- LIST (auth only) -->
   <div id="paneList" class="authOnly hidden" style="display:none;">
+    <div class="card">
+      <div class="row">
+        <input type="text" id="listSearchInput" data-i18n-ph="listSearchPh" placeholder="Search a courier or an area...">
+        <button class="btn btn-primary" id="listSearchBtn" style="flex:0 0 auto;padding:0 16px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        </button>
+      </div>
+    </div>
     <div class="card" id="listCard"><div class="empty" data-i18n="noData">No data yet</div></div>
   </div>
 
@@ -327,7 +337,7 @@ const translations = {
     signOut:"Sign out", pickCourier:"— or pick existing courier —",
     respFor:"responsible for", noResult:"No result", noResultSub:"No courier recorded for this area yet",
     belongsTo:"belongs to region", noCourierForRegion:"No confirmed courier for",
-    loadingSpeech:"Browser has no voice support",
+    loadingSpeech:"Browser has no voice support", listSearchPh:"Search a courier or an area...",
   },
   ar: {
     appTitle:"دليل المناطق", tabSearch:"بحث", tabAdd:"إضافة", tabList:"المناديب", tabRegions:"المناطق",
@@ -351,7 +361,7 @@ const translations = {
     signOut:"خروج", pickCourier:"— أو اختر مندوب موجود —",
     respFor:"مسؤول عن", noResult:"مفيش نتيجة", noResultSub:"مفيش مندوب مسجل للمنطقة دي لسه",
     belongsTo:"تابعة لمنطقة", noCourierForRegion:"لسه مفيش مندوب متأكد لـ",
-    loadingSpeech:"المتصفح ده مش بيدعم الصوت",
+    loadingSpeech:"المتصفح ده مش بيدعم الصوت", listSearchPh:"دور على مندوب أو منطقة...",
   }
 };
 let lang = 'en';
@@ -390,6 +400,92 @@ function normalize(s){
     .replace(/[\u064B-\u065F]/g,'').replace(/[إأآا]/g,'ا').replace(/ى/g,'ي')
     .replace(/ة/g,'ه').replace(/ؤ/g,'و').replace(/ئ/g,'ي')
     .replace(/\s+/g,' ').trim().toLowerCase();
+}
+
+// ---------- speech-recognition error tolerance ----------
+// Levenshtein edit distance, used to tolerate small mis-transcriptions
+// (e.g. "عمارات مليسا" heard as "عمارات ملسا" or "عمارات بلسا").
+function editDistance(a, b){
+  const m = a.length, n = b.length;
+  if(!m) return n; if(!n) return m;
+  const dp = new Array(n+1);
+  for(let j=0;j<=n;j++) dp[j]=j;
+  for(let i=1;i<=m;i++){
+    let prev = dp[0]; dp[0]=i;
+    for(let j=1;j<=n;j++){
+      const tmp = dp[j];
+      dp[j] = a[i-1]===b[j-1] ? prev : 1+Math.min(prev, dp[j], dp[j-1]);
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+// Word-level fuzzy match: compares query against each zone allowing a small
+// number of character-level errors proportional to word length, so minor STT
+// mistakes ("ملسا"/"بلسا" vs "مليسا") still resolve to the right zone.
+function fuzzyScore(query, target){
+  const qWords = query.split(' ').filter(Boolean);
+  const tWords = target.split(' ').filter(Boolean);
+  if(!qWords.length || !tWords.length) return Infinity;
+  let totalDist = 0;
+  qWords.forEach(qw=>{
+    let best = Infinity;
+    tWords.forEach(tw=>{
+      const d = editDistance(qw, tw);
+      const allowed = Math.max(1, Math.round(Math.max(qw.length, tw.length) * 0.42));
+      if(d <= allowed && d < best) best = d;
+    });
+    totalDist += (best===Infinity ? qw.length : best);
+  });
+  return totalDist;
+}
+
+// ---------- colloquial repeated-digit numbers ("ثلاث سبعات" -> "777") ----------
+const AR_COUNT_WORDS = {'واحد':1,'واحده':1,'اتنين':2,'إتنين':2,'اثنين':2,'إثنين':2,
+  'تلات':3,'تلاته':3,'ثلاث':3,'ثلاثه':3,'اربع':4,'أربع':4,'اربعه':4,'أربعه':4,
+  'خمس':5,'خمسه':5,'ست':6,'سته':6,'سبع':7,'سبعه':7,'تمن':8,'تمانيه':8,'ثمانيه':8,
+  'تسع':9,'تسعه':9};
+const AR_DIGIT_PLURALS = {'صفرات':'0','واحدات':'1','اتنينات':'2','إتنينات':'2',
+  'تلاتات':'3','ثلاثات':'3','اربعات':'4','أربعات':'4','خمسات':'5','ستات':'6',
+  'سبعات':'7','تمنيات':'8','تمانيات':'8','ثمانيات':'8','تسعات':'9'};
+function expandColloquialNumbers(text){
+  const words = text.split(/\s+/);
+  const out = [];
+  for(let i=0;i<words.length;i++){
+    const w1 = normalize(words[i]);
+    const w2 = i+1<words.length ? normalize(words[i+1]) : '';
+    if(AR_COUNT_WORDS[w1] && AR_DIGIT_PLURALS[w2]){
+      out.push(AR_DIGIT_PLURALS[w2].repeat(AR_COUNT_WORDS[w1]));
+      i++; // consumed both words
+    } else {
+      out.push(words[i]);
+    }
+  }
+  return out.join(' ');
+}
+
+// ---------- "فردي/زوجي <street> من N1 ل N2" range zones ----------
+function parseRangeZone(zoneStr){
+  const m = zoneStr.match(/^(فردي|زوجي)?\s*(.+?)\s*(?:من)\s*(\d+)\s*(?:ل|الى|إلى|-)\s*(\d+)\s*$/);
+  if(!m) return null;
+  const parity = m[1]==='فردي' ? 'odd' : m[1]==='زوجي' ? 'even' : null;
+  return { label: m[2].trim(), min: Math.min(+m[3],+m[4]), max: Math.max(+m[3],+m[4]), parity };
+}
+// Does a spoken query like "52 الميرغني" or "31 شارع الثورة" fall inside a
+// range-zone's numeric range (and match its odd/even rule, if any)?
+function matchesRangeZone(query, zoneStr){
+  const parsed = parseRangeZone(zoneStr);
+  if(!parsed) return false;
+  const numMatch = query.match(/\d+/);
+  if(!numMatch) return false;
+  const num = parseInt(numMatch[0], 10);
+  if(num < parsed.min || num > parsed.max) return false;
+  if(parsed.parity==='odd' && num % 2 === 0) return false;
+  if(parsed.parity==='even' && num % 2 !== 0) return false;
+  const textPart = normalize(query.replace(numMatch[0], ''));
+  const labelNorm = normalize(parsed.label);
+  if(!textPart) return true; // just a bare number with no street text — still allow
+  return labelNorm.includes(textPart) || textPart.includes(labelNorm) || fuzzyScore(textPart, labelNorm) <= 2;
 }
 
 // local cache for instant offline-ish load
@@ -531,19 +627,25 @@ function renderDatalists(){
   }
 }
 
-function renderList(){
+function renderList(highlightCourier, highlightZone){
   const el = document.getElementById('listCard');
   const names = Object.keys(data);
   if(!names.length){ el.innerHTML = `<div class="empty">${t('noData')}</div>`; return; }
-  el.innerHTML = names.map(n=>`
-    <div class="courier-card">
+  // Show a matched courier first so it's immediately visible without scrolling.
+  const ordered = highlightCourier ? [highlightCourier, ...names.filter(n=>n!==highlightCourier)] : names;
+  el.innerHTML = ordered.map(n=>`
+    <div class="courier-card${n===highlightCourier ? ' highlighted' : ''}" data-courier-card="${n}">
       <div class="courier-name"><span>${n} (${data[n].length})</span><span class="del" data-c="${n}">✕</span></div>
-      <div>${data[n].map((z,i)=>`<span class="zonepill">${z} <button data-c="${n}" data-i="${i}">✕</button></span>`).join('')}</div>
+      <div>${data[n].map((z,i)=>`<span class="zonepill${n===highlightCourier && z===highlightZone ? ' highlighted' : ''}">${z} <button data-c="${n}" data-i="${i}">✕</button></span>`).join('')}</div>
       <div class="row" style="margin-top:8px;">
         <input type="text" class="inlineAddInput" data-c="${n}" list="zoneList" placeholder="+ zone">
         <button class="btn btn-primary inlineAddBtn" data-c="${n}" style="flex:0 0 auto;padding:8px 14px;">+</button>
       </div>
     </div>`).join('');
+  if(highlightCourier){
+    const card = el.querySelector(`[data-courier-card="${CSS.escape(highlightCourier)}"]`);
+    if(card) card.scrollIntoView({behavior:'smooth', block:'start'});
+  }
   el.querySelectorAll('.zonepill button').forEach(b=> b.onclick = async ()=>{
     data[b.dataset.c].splice(+b.dataset.i,1); await saveData();
   });
@@ -561,6 +663,22 @@ function renderList(){
   });
   el.querySelectorAll('.inlineAddInput').forEach(inp=> inp.addEventListener('keydown', e=>{ if(e.key==='Enter') inlineAdd(inp.dataset.c, inp); }));
 }
+
+// ---- Couriers-tab search: find by courier name OR by zone/area name ----
+function doListSearch(){
+  const raw = document.getElementById('listSearchInput').value.trim();
+  if(!raw){ renderList(); return; }
+  const q = normalize(raw);
+  // 1) direct courier-name match
+  const courierHit = Object.keys(data).find(n=> normalize(n).includes(q) || q.includes(normalize(n)));
+  if(courierHit){ renderList(courierHit, null); return; }
+  // 2) zone/area match (same matching engine as the Search tab)
+  const zoneMatches = findCouriersForZone(raw);
+  if(zoneMatches.length){ renderList(zoneMatches[0].courier, zoneMatches[0].zone); return; }
+  renderList(); // no match — just show the full list
+}
+document.getElementById('listSearchBtn').addEventListener('click', doListSearch);
+document.getElementById('listSearchInput').addEventListener('keydown', e=>{ if(e.key==='Enter') doListSearch(); });
 
 // ================= region aliases =================
 document.getElementById('addAliasBtn').addEventListener('click', async ()=>{
@@ -596,17 +714,60 @@ function findRegionForSubArea(q){
       if(!best || nsub.length > normalize(best.sub).length) best = { sub, region: aliases[sub] };
     }
   });
+  if(best) return best;
+  // Queries containing a number are handled by the numeric range logic in
+  // findCouriersForZone, not by fuzzy text matching here (a number like "31"
+  // can look deceptively "close" to unrelated text and cause wrong matches).
+  if(/\d/.test(q)) return null;
+  // fuzzy fallback for sub-areas too (STT mis-hearing) — skip range-pattern
+  // entries, which must only ever match through the numeric range logic.
+  let bestScore = Infinity;
+  Object.keys(aliases).forEach(sub=>{
+    if(parseRangeZone(sub)) return;
+    const score = fuzzyScore(q, normalize(sub));
+    const allowed = Math.max(1, Math.round(q.length*0.42));
+    if(score <= allowed && score < bestScore){ bestScore = score; best = { sub, region: aliases[sub] }; }
+  });
   return best;
 }
 function findCouriersForZone(qOrRegion){
   const q = normalize(qOrRegion);
   let matches=[];
+  // 1) exact/substring matches (fast path, most common case)
   Object.keys(data).forEach(courier=>{
     data[courier].forEach(zone=>{
       const nz = normalize(zone);
       if(nz.includes(q) || q.includes(nz)) matches.push({courier, zone});
     });
   });
+  if(matches.length) return matches;
+
+  // 2) numeric range zones ("فردي شارع الثورة من 99 ل 121", "مصطفى النحاس من 2 ل 52")
+  Object.keys(data).forEach(courier=>{
+    data[courier].forEach(zone=>{
+      if(matchesRangeZone(qOrRegion, zone)) matches.push({courier, zone});
+    });
+  });
+  if(matches.length) return matches;
+
+  // 3) fuzzy fallback — tolerate small speech-recognition mistakes
+  //    (e.g. "عمارات ملسا"/"عمارات بلسا" still finding "عمارات مليسا").
+  //    Range-pattern zones ("فردي ... من 99 ل 121") are excluded here — they
+  //    already had their proper chance in step 2, and a generic word-fuzzy
+  //    compare would wrongly ignore the actual number in the query. Queries
+  //    containing a digit skip this step entirely for the same reason.
+  if(/\d/.test(q)) return matches;
+  let bestScore = Infinity, bestMatch = null;
+  Object.keys(data).forEach(courier=>{
+    data[courier].forEach(zone=>{
+      if(parseRangeZone(zone)) return;
+      const nz = normalize(zone);
+      const score = fuzzyScore(q, nz);
+      const allowed = Math.max(1, Math.round(q.length*0.42));
+      if(score <= allowed && score < bestScore){ bestScore = score; bestMatch = {courier, zone}; }
+    });
+  });
+  if(bestMatch) matches.push(bestMatch);
   return matches;
 }
 function logMiss(term){
@@ -619,6 +780,7 @@ function logMiss(term){
 }
 function doSearch(query){
   const resEl = document.getElementById('searchResult');
+  query = expandColloquialNumbers(query); // "تلات سبعات" -> "777"
   const q = normalize(query);
   if(!q){ resEl.innerHTML=''; return; }
   const directMatches = findCouriersForZone(query);
