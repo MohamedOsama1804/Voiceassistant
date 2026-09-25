@@ -1,4 +1,4 @@
-const CACHE_NAME = 'courier-directory-v3';
+const CACHE_NAME = 'courier-directory-v4';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './xlsx.full.min.js'];
 
 self.addEventListener('install', (event) => {

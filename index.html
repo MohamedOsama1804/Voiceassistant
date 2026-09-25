@@ -731,9 +731,13 @@ function renderList(highlightCourier, highlightZone){
   el.querySelectorAll('.inlineAddInput').forEach(inp=> inp.addEventListener('keydown', e=>{
     if(e.key==='Enter'){
       e.preventDefault(); // stop the keyboard's "Go/Enter" action from blurring the field
-      inlineAdd(inp.dataset.c, inp);
-      inp.value=''; // clear right away — don't wait on the Firebase round trip —
-      inp.focus();  // so the field is instantly empty and ready for the next name.
+      inlineAdd(inp.dataset.c, inp); // read + save the name while the value is still correct
+      // Clear on the next tick, not immediately: some mobile keyboards (this shows
+      // up with predictive Arabic input) finish "committing" the typed word into
+      // the field in a step that runs right AFTER the Enter keydown — clearing
+      // synchronously here was getting overwritten a moment later by that commit,
+      // which is exactly what left a leftover copy of the name in the box.
+      setTimeout(()=>{ inp.value=''; inp.focus(); }, 0);
     }
   }));
   if(restoreFocus){
@@ -1176,13 +1180,26 @@ function updateVoiceInfo(){
   }
 }
 updateVoiceInfo();
+// `ttsActive` / `lastSpokenNormalized` let continuous mode tell "the device
+// hearing its own answer" apart from "the person asking a new question" —
+// see the continuous-mode block below for how they're used.
+let ttsActive = false, lastSpokenNormalized = '', ttsGraceTimer = null;
 function speakAr(text, onDone){
   try{
     if(!('speechSynthesis' in window)){ if(onDone) onDone(); return; }
     const u = new SpeechSynthesisUtterance(text);
     if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; }
     else { u.lang = 'ar-SA'; }
-    if(onDone){ u.onend = onDone; u.onerror = onDone; }
+    lastSpokenNormalized = normalize(text);
+    ttsActive = true;
+    clearTimeout(ttsGraceTimer);
+    const finish = ()=>{
+      // Keep treating fresh mic input as possible echo for a short beat after
+      // speech technically ends — audio hardware/STT can lag slightly behind.
+      ttsGraceTimer = setTimeout(()=>{ ttsActive = false; }, 500);
+      if(onDone) onDone();
+    };
+    u.onend = finish; u.onerror = finish;
     speechSynthesis.cancel(); speechSynthesis.speak(u);
   }catch(e){ if(onDone) onDone(); }
 }
@@ -1214,59 +1231,84 @@ wireMic('micQuick','quickInput');
 wireMic('micSearch','searchInput', t=> doSearch(t), 'ar-EG');
 
 // continuous mode
-// Root cause of Known Issue #2 (the "unknown" answer repeating 2-3 times,
-// and no breathing room between questions): the recognizer kept `continuous`
-// listening switched on WHILE the device spoke its answer out loud, so the
-// mic picked up the TTS voice itself, transcribed it as a new "question",
-// searched again, spoke the same answer again, and so on. `pausedForSpeech`
-// stops the mic before speaking and only restarts it once the utterance has
-// genuinely finished, so each spoken input is handled once and the person
-// gets a clean, silent window in which to ask the next question.
-let continuousActive=false, continuousRec=null, lastResultIndex=0, pausedForSpeech=false;
+// v2 — real barge-in (New Task, latest request).
+// The earlier fix (Known Issue #2) stopped the mic completely while the
+// answer was being spoken, so the device couldn't hear itself. That killed
+// the repeat-loop bug, but it also meant every question had to wait for a
+// full stop → speak → restart cycle before the next one could be heard —
+// too slow for someone firing off questions back-to-back, and it made
+// interrupting an answer mid-sentence impossible.
+//
+// New design: the mic is never stopped once continuous mode is on.
+//  - interim (non-final) results are used to notice "the person just started
+//    talking" as early as possible; the instant that happens while we're
+//    speaking, we cut the current answer immediately (speechSynthesis.cancel())
+//    — that's the barge-in.
+//  - Every result, interim or final, is checked against what we're currently
+//    speaking (or just finished speaking, within a short grace window) with
+//    a fuzzy text match. A match is our own echo and gets ignored; anything
+//    else is a genuine new question and gets processed right away.
+// Caveat: this is a text-similarity heuristic, not real acoustic echo
+// cancellation (the Web Speech API doesn't expose that control) — it should
+// hold up well in practice since answers and area/courier names read very
+// differently, but if it ever swallows a real question that happens to sound
+// close to the previous answer, the threshold in looksLikeEcho can be tuned.
+let continuousActive=false, continuousRec=null, lastResultIndex=0;
+let bargeInFired = false;   // don't call speechSynthesis.cancel() more than once per incoming phrase
+let lastRecEventAt = 0;     // feeds the installed-app watchdog below
 const contBtn = document.getElementById('continuousBtn');
 const contStatus = document.getElementById('continuousStatus');
+
+function looksLikeEcho(heard, spoken){
+  if(!spoken || !heard) return false;
+  if(heard===spoken || spoken.includes(heard) || heard.includes(spoken)) return true;
+  const dist = editDistance(heard, spoken);
+  const maxLen = Math.max(heard.length, spoken.length);
+  return maxLen>0 && (1 - dist/maxLen) >= 0.6;
+}
+
 function startContinuousCycle(){
   if(!continuousActive || !SpeechRec) return;
-  lastResultIndex=0;
+  lastResultIndex=0; bargeInFired=false; lastRecEventAt=Date.now();
   continuousRec = new SpeechRec();
   continuousRec.lang = 'ar-EG'; // search voice is always Arabic
-  continuousRec.continuous = true; continuousRec.interimResults=false; continuousRec.maxAlternatives=1;
-  continuousRec.onstart=()=>{ contStatus.textContent='...'; };
-  continuousRec.onerror=(e)=>{ contStatus.textContent = e.error; };
+  continuousRec.continuous = true; continuousRec.interimResults=true; continuousRec.maxAlternatives=1;
+  continuousRec.onstart=()=>{ contStatus.textContent='...'; lastRecEventAt=Date.now(); };
+  continuousRec.onerror=(e)=>{ contStatus.textContent = e.error; lastRecEventAt=Date.now(); };
   continuousRec.onresult=(ev)=>{
+    lastRecEventAt = Date.now();
     for(let i=lastResultIndex;i<ev.results.length;i++){
-      if(ev.results[i].isFinal){
-        const tr = ev.results[i][0].transcript;
-        document.getElementById('searchInput').value = tr;
-        // Stop listening immediately so the spoken answer can't be
-        // re-captured as the next question — this is the whole fix.
-        pausedForSpeech = true;
-        try{ continuousRec.stop(); }catch(e){}
-        doSearch(tr, ()=>{
-          pausedForSpeech = false;
-          if(continuousActive) startContinuousCycle();
-        });
-        break; // this recognizer instance is being discarded — ignore any
-               // further queued results from it.
+      const res = ev.results[i];
+      const heard = normalize(res[0].transcript);
+      if(!heard) continue;
+      const echo = looksLikeEcho(heard, lastSpokenNormalized);
+      if(!res.isFinal){
+        // Barge-in: something that isn't our own echo is coming in WHILE we're
+        // talking — cut the current answer off now, don't wait for the full
+        // phrase to finish transcribing.
+        if(ttsActive && !echo && !bargeInFired){ bargeInFired = true; speechSynthesis.cancel(); }
+        continue; // still wait for the final transcript before actually searching
       }
+      if(echo) continue; // our own voice coming back through the mic — ignore it
+      bargeInFired = false;
+      document.getElementById('searchInput').value = res[0].transcript;
+      doSearch(res[0].transcript);
     }
     lastResultIndex = ev.results.length;
   };
   continuousRec.onend=()=>{
-    // Only auto-restart here if we stopped for a reason OTHER than "we're
-    // about to speak the answer" — that case restarts itself, from doSearch's
-    // onSpeechDone callback above, once speaking is actually finished.
-    if(continuousActive && !pausedForSpeech){ try{ startContinuousCycle(); }catch(e){ stopContinuous(); } }
+    lastRecEventAt = Date.now();
+    if(continuousActive){ try{ startContinuousCycle(); }catch(e){ stopContinuous(); } }
   };
   try{ continuousRec.start(); }catch(e){}
 }
 function stopContinuous(){
   continuousActive=false;
-  pausedForSpeech=false;
   contBtn.querySelector('span').textContent = t('continuousStart');
   contBtn.classList.remove('btn-danger'); contBtn.classList.add('btn-outline');
   if(continuousRec){ try{ continuousRec.stop(); }catch(e){} }
   speechSynthesis.cancel();
+  releaseWakeLock();
 }
 contBtn.addEventListener('click', ()=>{
   continuousActive = !continuousActive;
@@ -1274,9 +1316,44 @@ contBtn.addEventListener('click', ()=>{
     contBtn.querySelector('span').textContent = t('continuousStop');
     contBtn.classList.remove('btn-outline'); contBtn.classList.add('btn-danger');
     startContinuousCycle();
+    requestWakeLock();
   } else { stopContinuous(); }
 });
 if(!SpeechRec){ contBtn.disabled = true; }
+
+// ---- installed-app (standalone PWA) resilience ----
+// A standalone/installed PWA gets suspended by the OS far more aggressively
+// than an open browser tab — screen lock, task switching, background
+// throttling — which can silently kill an active SpeechRecognition session
+// without ever firing `onend`. Without this, continuous mode would just go
+// quiet on the installed app until someone notices and taps the button again.
+// The watchdog below makes it self-heal, and the screen wake lock keeps the
+// screen (and the mic session) from being suspended in the first place while
+// continuous mode is meant to be running.
+let wakeLock = null;
+async function requestWakeLock(){
+  try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+}
+function releaseWakeLock(){
+  if(wakeLock){ try{ wakeLock.release(); }catch(e){} wakeLock = null; }
+}
+document.addEventListener('visibilitychange', ()=>{
+  // Coming back from the background is exactly when a silently-killed
+  // recognizer needs restarting, and when the wake lock (released by the
+  // OS while hidden) needs re-requesting.
+  if(document.visibilityState==='visible' && continuousActive){
+    try{ continuousRec && continuousRec.stop(); }catch(e){}
+    setTimeout(()=>{ if(continuousActive) startContinuousCycle(); }, 200);
+    requestWakeLock();
+  }
+});
+setInterval(()=>{
+  if(!continuousActive || ttsActive) return;
+  if(Date.now() - lastRecEventAt > 8000){
+    try{ continuousRec && continuousRec.stop(); }catch(e){}
+    startContinuousCycle();
+  }
+}, 4000);
 
 // ================= init =================
 if('serviceWorker' in navigator){
