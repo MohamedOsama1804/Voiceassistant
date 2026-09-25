@@ -683,6 +683,19 @@ function renderDatalists(){
 
 function renderList(highlightCourier, highlightZone){
   const el = document.getElementById('listCard');
+  // Every save round-trips through Firebase and comes back through
+  // dataRef.on('value') → renderAll() → renderList(), which rebuilds this
+  // whole card list from scratch. On mobile that destroys and recreates the
+  // "+ zone" <input> the person is actively typing into, which is exactly
+  // what was closing the on-screen keyboard after every single entry. Here
+  // we snapshot which inline input (if any) was focused right before the
+  // rebuild, then hand focus back to its replacement afterwards so typing
+  // several zones in a row stays uninterrupted.
+  const active = document.activeElement;
+  let restoreFocus = null;
+  if(active && active.classList && active.classList.contains('inlineAddInput') && el.contains(active)){
+    restoreFocus = { courier: active.dataset.c, selStart: active.selectionStart, selEnd: active.selectionEnd, val: active.value };
+  }
   const names = Object.keys(data);
   if(!names.length){ el.innerHTML = `<div class="empty">${t('noData')}</div>`; return; }
   // Show a matched courier first so it's immediately visible without scrolling.
@@ -715,7 +728,22 @@ function renderList(highlightCourier, highlightZone){
     const input = el.querySelector(`.inlineAddInput[data-c="${CSS.escape(btn.dataset.c)}"]`);
     inlineAdd(btn.dataset.c, input);
   });
-  el.querySelectorAll('.inlineAddInput').forEach(inp=> inp.addEventListener('keydown', e=>{ if(e.key==='Enter') inlineAdd(inp.dataset.c, inp); }));
+  el.querySelectorAll('.inlineAddInput').forEach(inp=> inp.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){
+      e.preventDefault(); // stop the keyboard's "Go/Enter" action from blurring the field
+      inlineAdd(inp.dataset.c, inp);
+      inp.value=''; // clear right away — don't wait on the Firebase round trip —
+      inp.focus();  // so the field is instantly empty and ready for the next name.
+    }
+  }));
+  if(restoreFocus){
+    const inp = el.querySelector(`.inlineAddInput[data-c="${CSS.escape(restoreFocus.courier)}"]`);
+    if(inp){
+      inp.value = restoreFocus.val;
+      inp.focus();
+      try{ inp.setSelectionRange(restoreFocus.selStart, restoreFocus.selEnd); }catch(e){}
+    }
+  }
 }
 
 // ---- Couriers-tab search: find by courier name OR by zone/area name ----
