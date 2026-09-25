@@ -438,6 +438,10 @@ let aliases = {};
 let selectedCourier = '';
 let isAuthed = false;
 let currentTab = 'search';
+// Guards the Couriers-tab inline "+ zone" field against a Firebase-render
+// race that was leaving a stale copy of the just-added name in the box —
+// see renderList() for the full explanation.
+let inlineAddJustCommitted = null;
 const tabIds = ['search','add','list','regions','excel','missed'];
 
 function normalize(s){
@@ -695,6 +699,15 @@ function renderList(highlightCourier, highlightZone){
   let restoreFocus = null;
   if(active && active.classList && active.classList.contains('inlineAddInput') && el.contains(active)){
     restoreFocus = { courier: active.dataset.c, selStart: active.selectionStart, selEnd: active.selectionEnd, val: active.value };
+    // The actual bug behind "a copy of the name stays in the box": this
+    // snapshot can fire (via the Firebase echo of the very save we just
+    // triggered) BEFORE the browser has fully processed our own value='' —
+    // so it was capturing the OLD un-cleared text and reinstating it into the
+    // freshly rebuilt input a moment later. If this input just committed an
+    // Enter, force the restored value to empty no matter what was captured.
+    if(inlineAddJustCommitted && inlineAddJustCommitted.courier===restoreFocus.courier){
+      restoreFocus.val = ''; restoreFocus.selStart = 0; restoreFocus.selEnd = 0;
+    }
   }
   const names = Object.keys(data);
   if(!names.length){ el.innerHTML = `<div class="empty">${t('noData')}</div>`; return; }
@@ -728,18 +741,21 @@ function renderList(highlightCourier, highlightZone){
     const input = el.querySelector(`.inlineAddInput[data-c="${CSS.escape(btn.dataset.c)}"]`);
     inlineAdd(btn.dataset.c, input);
   });
-  el.querySelectorAll('.inlineAddInput').forEach(inp=> inp.addEventListener('keydown', e=>{
-    if(e.key==='Enter'){
-      e.preventDefault(); // stop the keyboard's "Go/Enter" action from blurring the field
-      inlineAdd(inp.dataset.c, inp); // read + save the name while the value is still correct
-      // Clear on the next tick, not immediately: some mobile keyboards (this shows
-      // up with predictive Arabic input) finish "committing" the typed word into
-      // the field in a step that runs right AFTER the Enter keydown — clearing
-      // synchronously here was getting overwritten a moment later by that commit,
-      // which is exactly what left a leftover copy of the name in the box.
-      setTimeout(()=>{ inp.value=''; inp.focus(); }, 0);
-    }
-  }));
+  el.querySelectorAll('.inlineAddInput').forEach(inp=>{
+    // Any real keystroke means the person has moved on — stop forcing this
+    // courier's field back to empty on the next rebuild.
+    inp.addEventListener('input', ()=>{
+      if(inlineAddJustCommitted && inlineAddJustCommitted.courier===inp.dataset.c) inlineAddJustCommitted = null;
+    });
+    inp.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){
+        e.preventDefault(); // stop the keyboard's "Go/Enter" action from blurring the field
+        inlineAdd(inp.dataset.c, inp); // read + save the name while the value is still correct
+        inlineAddJustCommitted = { courier: inp.dataset.c };
+        inp.value=''; inp.focus(); // clear right away, ready for the next name
+      }
+    });
+  });
   if(restoreFocus){
     const inp = el.querySelector(`.inlineAddInput[data-c="${CSS.escape(restoreFocus.courier)}"]`);
     if(inp){
@@ -1183,24 +1199,65 @@ updateVoiceInfo();
 // `ttsActive` / `lastSpokenNormalized` let continuous mode tell "the device
 // hearing its own answer" apart from "the person asking a new question" —
 // see the continuous-mode block below for how they're used.
-let ttsActive = false, lastSpokenNormalized = '', ttsGraceTimer = null;
+//
+// IMPORTANT: native speechSynthesis audio is NOT visible to the browser's
+// echo-cancellation the way WebRTC/Web-Audio playback is — Chrome's AEC can
+// only cancel out audio it has a reference signal for, and speechSynthesis
+// never hands one over. So while a single long utterance plays, the mic is
+// either drowned out by our own voice or the recognizer just can't make
+// sense of the mixed signal — no amount of JS-side speed fixes the interim
+// results if the recognizer never gets a clean audio window to work with in
+// the first place. That's what made the previous version capture NOTHING
+// until the whole answer finished.
+// Fix: speak the answer as a sequence of short chunks with a brief, REAL
+// silence between each one. ttsActive is only true while a chunk is actually
+// sounding — during each gap the mic gets a genuinely clean, TTS-free window,
+// so barge-in speech that lands in one gets heard properly instead of being
+// buried under our own voice. Tune CHUNK_WORDS / GAP_MS below based on real
+// testing; smaller chunks / longer gaps = more interruptible but choppier.
+let ttsActive = false, lastSpokenNormalized = '', ttsGraceTimer = null, ttsSeqId = 0;
+const TTS_CHUNK_WORDS = 1, TTS_GAP_MS = 130;
+function cancelSpeaking(){
+  ttsSeqId++; // invalidates any chunk still waiting on its own setTimeout/onend
+  try{ speechSynthesis.cancel(); }catch(e){}
+  ttsActive = false;
+}
 function speakAr(text, onDone){
   try{
     if(!('speechSynthesis' in window)){ if(onDone) onDone(); return; }
-    const u = new SpeechSynthesisUtterance(text);
-    if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; }
-    else { u.lang = 'ar-SA'; }
-    lastSpokenNormalized = normalize(text);
-    ttsActive = true;
-    clearTimeout(ttsGraceTimer);
-    const finish = ()=>{
-      // Keep treating fresh mic input as possible echo for a short beat after
-      // speech technically ends — audio hardware/STT can lag slightly behind.
-      ttsGraceTimer = setTimeout(()=>{ ttsActive = false; }, 500);
-      if(onDone) onDone();
-    };
-    u.onend = finish; u.onerror = finish;
-    speechSynthesis.cancel(); speechSynthesis.speak(u);
+    const mySeq = ++ttsSeqId;
+    lastSpokenNormalized = normalize(text); // the FULL sentence, so echo-matching
+                                             // still works no matter which chunk
+                                             // or gap a stray echo lands in.
+    const words = text.split(/\s+/).filter(Boolean);
+    const chunks = [];
+    for(let i=0;i<words.length;i+=TTS_CHUNK_WORDS) chunks.push(words.slice(i,i+TTS_CHUNK_WORDS).join(' '));
+    let idx = 0;
+    function speakNext(){
+      if(mySeq !== ttsSeqId) return; // superseded by a newer answer or a barge-in cancel
+      if(idx >= chunks.length){
+        // A short grace period after the LAST chunk too — mobile audio
+        // hardware/STT can lag a beat behind the moment playback stops.
+        ttsGraceTimer = setTimeout(()=>{ if(mySeq===ttsSeqId) ttsActive=false; }, 350);
+        if(onDone) onDone();
+        return;
+      }
+      ttsActive = true;
+      const u = new SpeechSynthesisUtterance(chunks[idx]);
+      if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; }
+      else { u.lang = 'ar-SA'; }
+      idx++;
+      const afterChunk = ()=>{
+        if(mySeq !== ttsSeqId) return;
+        if(idx >= chunks.length){ speakNext(); return; } // finalize (grace + onDone above)
+        ttsActive = false; // the real, deliberate gap — an honest listening window
+        setTimeout(()=>{ if(mySeq===ttsSeqId) speakNext(); }, TTS_GAP_MS);
+      };
+      u.onend = afterChunk; u.onerror = afterChunk;
+      speechSynthesis.speak(u);
+    }
+    speechSynthesis.cancel();
+    speakNext();
   }catch(e){ if(onDone) onDone(); }
 }
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1242,7 +1299,7 @@ wireMic('micSearch','searchInput', t=> doSearch(t), 'ar-EG');
 // New design: the mic is never stopped once continuous mode is on.
 //  - interim (non-final) results are used to notice "the person just started
 //    talking" as early as possible; the instant that happens while we're
-//    speaking, we cut the current answer immediately (speechSynthesis.cancel())
+//    speaking, we cut the current answer immediately (cancelSpeaking())
 //    — that's the barge-in.
 //  - Every result, interim or final, is checked against what we're currently
 //    speaking (or just finished speaking, within a short grace window) with
@@ -1286,7 +1343,7 @@ function startContinuousCycle(){
         // Barge-in: something that isn't our own echo is coming in WHILE we're
         // talking — cut the current answer off now, don't wait for the full
         // phrase to finish transcribing.
-        if(ttsActive && !echo && !bargeInFired){ bargeInFired = true; speechSynthesis.cancel(); }
+        if(ttsActive && !echo && !bargeInFired){ bargeInFired = true; cancelSpeaking(); }
         continue; // still wait for the final transcript before actually searching
       }
       if(echo) continue; // our own voice coming back through the mic — ignore it
@@ -1307,7 +1364,7 @@ function stopContinuous(){
   contBtn.querySelector('span').textContent = t('continuousStart');
   contBtn.classList.remove('btn-danger'); contBtn.classList.add('btn-outline');
   if(continuousRec){ try{ continuousRec.stop(); }catch(e){} }
-  speechSynthesis.cancel();
+  cancelSpeaking();
   releaseWakeLock();
 }
 contBtn.addEventListener('click', ()=>{
