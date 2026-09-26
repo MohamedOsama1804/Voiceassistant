@@ -187,6 +187,11 @@
         <span data-i18n="continuousStart">Start continuous mode</span>
       </button>
       <div class="status" id="continuousStatus"></div>
+      <label style="display:flex;align-items:center;gap:6px;justify-content:center;margin-top:8px;font-size:13px;color:var(--muted);">
+        <input type="checkbox" id="contDebugToggle" style="width:auto;">
+        <span data-i18n="contDebugLabel">Show live diagnostics (for testing barge-in)</span>
+      </label>
+      <div id="contDebugLog" style="display:none;text-align:left;direction:ltr;font-family:monospace;font-size:11px;max-height:160px;overflow-y:auto;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px;white-space:pre-wrap;"></div>
     </div>
   </div>
 
@@ -372,6 +377,7 @@ const translations = {
     streetsLabel:"Streets (one per line or comma-separated)", streetsPh:"Street 1, Street 2...",
     responsibleCourierLabel:"Responsible courier", responsibleCourierPh:"Type or pick existing courier",
     addRegionContentBtn:"Save region content", regionNavAll:"All",
+    contDebugLabel:"Show live diagnostics (for testing barge-in)",
   },
   ar: {
     appTitle:"دليل المناطق", tabSearch:"بحث", tabAdd:"إضافة", tabList:"المناديب", tabRegions:"المناطق",
@@ -405,6 +411,7 @@ const translations = {
     streetsLabel:"الشوارع (سطر لكل واحد أو مفصولة بفاصلة)", streetsPh:"شارع 1, شارع 2...",
     responsibleCourierLabel:"المندوب المسؤول", responsibleCourierPh:"اكتب أو اختار مندوب موجود",
     addRegionContentBtn:"حفظ محتوى المنطقة", regionNavAll:"الكل",
+    contDebugLabel:"إظهار تشخيص مباشر (لاختبار المقاطعة)",
   }
 };
 let lang = 'en';
@@ -446,6 +453,7 @@ const tabIds = ['search','add','list','regions','excel','missed'];
 
 function normalize(s){
   return (s||'')
+    .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)) // Arabic-Indic digits -> ASCII
     .replace(/[\u064B-\u065F]/g,'').replace(/[إأآا]/g,'ا').replace(/ى/g,'ي')
     .replace(/ة/g,'ه').replace(/ؤ/g,'و').replace(/ئ/g,'ي')
     .replace(/\s+/g,' ').trim().toLowerCase();
@@ -513,27 +521,92 @@ function expandColloquialNumbers(text){
   return out.join(' ');
 }
 
-// ---------- "فردي/زوجي <street> من N1 ل N2" range zones ----------
-function parseRangeZone(zoneStr){
-  const m = zoneStr.match(/^(فردي|زوجي)?\s*(.+?)\s*(?:من)\s*(\d+)\s*(?:ل|الى|إلى|-)\s*(\d+)\s*$/);
-  if(!m) return null;
-  const parity = m[1]==='فردي' ? 'odd' : m[1]==='زوجي' ? 'even' : null;
-  return { label: m[2].trim(), min: Math.min(+m[3],+m[4]), max: Math.max(+m[3],+m[4]), parity };
+// ---------- "فردي/زوجي <street> من N1 ل N2" range zones (Task 2) ----------
+// Handles records like:
+//   "العمارات من 1 إلى 65"          (a bare entity-type range, "من" optional)
+//   "فيلات 1 إلي 17"                 (same, no "من" at all — real data has both)
+//   "فيلات من 23 فيما فوق"           (open-ended range)
+//   "فردي مصطفى النحاس من 99 ل 121"  (a genuine street name + parity)
+// normalize() already folds إلى/الى/إلي down to one spelling ("الي") and any
+// Arabic-Indic digits to ASCII, so the patterns below only need to name the
+// post-normalize forms.
+const BUILDING_WORDS = ['عماره','عمارات','عمار'];
+const VILLA_WORDS = ['فيلا','فيله','فيلات'];
+const BLOCK_WORDS = ['مجاوره','مجاورات'];
+const FILLER_WORDS = ['شارع','رقم']; // stripped, but don't lock the entity type
+const TYPE_WORDS = BUILDING_WORDS.concat(VILLA_WORDS, BLOCK_WORDS);
+function stripAl(w){ return w.startsWith('ال') && w.length>3 ? w.slice(2) : w; }
+// Detects a distinguishing entity type (building/villa/block) in a bit of
+// normalized text, if any. Streets have no type — only these three do,
+// which matters because their ranges commonly overlap (e.g. "عمارات 1-65"
+// and "فيلات 1-17" both cover the number 13) and must not cross-match.
+function detectEntityType(normText){
+  const words = (normText||'').split(' ').map(stripAl);
+  if(words.some(w=>BUILDING_WORDS.includes(w))) return 'building';
+  if(words.some(w=>VILLA_WORDS.includes(w))) return 'villa';
+  if(words.some(w=>BLOCK_WORDS.includes(w))) return 'block';
+  return null;
 }
-// Does a spoken query like "52 الميرغني" or "31 شارع الثورة" fall inside a
-// range-zone's numeric range (and match its odd/even rule, if any)?
+function isBareEntityLabel(labelNorm, type){
+  const list = type==='building'?BUILDING_WORDS : type==='villa'?VILLA_WORDS : type==='block'?BLOCK_WORDS : [];
+  return list.includes(stripAl((labelNorm||'').trim()));
+}
+function parseRangeZone(zoneStrRaw){
+  const zoneStr = normalize(zoneStrRaw);
+  // Open-ended: "<label> [من] N فيما فوق / فما فوق / وفوق / فأكثر / وأكثر"
+  let m = zoneStr.match(/^(فردي|زوجي)?\s*(.+?)\s*(?:من\s*)?(\d+)\s*(?:فيما فوق|فما فوق|وفوق|فاكثر|واكثر)\s*$/);
+  if(m){
+    const parity = m[1]==='فردي' ? 'odd' : m[1]==='زوجي' ? 'even' : null;
+    const label = m[2].trim();
+    return { label, min: +m[3], max: Infinity, parity, type: detectEntityType(label) };
+  }
+  // Closed range, "من" optional, separator any of الي/حتي/ل/-
+  m = zoneStr.match(/^(فردي|زوجي)?\s*(.+?)\s*(?:من\s*)?(\d+)\s*(?:الي|حتي|ل|-)\s*(\d+)\s*$/);
+  if(m && m[2].trim()){
+    const parity = m[1]==='فردي' ? 'odd' : m[1]==='زوجي' ? 'even' : null;
+    const label = m[2].trim();
+    return { label, min: Math.min(+m[3],+m[4]), max: Math.max(+m[3],+m[4]), parity, type: detectEntityType(label) };
+  }
+  return null;
+}
+// Does a spoken query like "الرحاب عمارة 13" or "52 الميرغني" fall inside a
+// range-zone's numeric range (matching its type and odd/even rule, if any)?
 function matchesRangeZone(query, zoneStr){
   const parsed = parseRangeZone(zoneStr);
   if(!parsed) return false;
-  const numMatch = query.match(/\d+/);
-  if(!numMatch) return false;
-  const num = parseInt(numMatch[0], 10);
+  const q = normalize(query);
+  // The query can carry an earlier area number too ("الرحاب 1 عمارة 113") —
+  // the actual unit number is the LAST one spoken, not the first.
+  const allNums = q.match(/\d+/g);
+  if(!allNums) return false;
+  const numStr = allNums[allNums.length-1];
+  const num = parseInt(numStr, 10);
   if(num < parsed.min || num > parsed.max) return false;
   if(parsed.parity==='odd' && num % 2 === 0) return false;
   if(parsed.parity==='even' && num % 2 !== 0) return false;
-  const textPart = normalize(query.replace(numMatch[0], ''));
+
+  const restWords = q.replace(/\d+/g, ' ').split(' ').filter(Boolean).filter(w=>!FILLER_WORDS.includes(stripAl(w)));
+  const rest = restWords.join(' ');
+  const qType = detectEntityType(rest);
+  // A record with a distinguishing type only matches a query naming that
+  // SAME type (or no type at all) — this is what keeps "فيلا 13" out of an
+  // "عمارات" range that happens to cover 13 too.
+  if(parsed.type && qType && parsed.type !== qType) return false;
+
   const labelNorm = normalize(parsed.label);
-  if(!textPart) return true; // just a bare number with no street text — still allow
+  if(parsed.type && isBareEntityLabel(labelNorm, parsed.type)){
+    // A bare "العمارات"/"فيلات"/"المجاورات" record is a pure structural
+    // range — number (+ type) already checked above. Any words still left
+    // in the query (a region name, "شارع", "رقم"...) are disambiguation
+    // CONTEXT handled by the caller, not part of this record's label, so
+    // they must not be forced into a fuzzy match against the bare word.
+    return true;
+  }
+  // Otherwise it's a genuine street name range ("فردي مصطفى النحاس ...") —
+  // compare what's left of the query (minus the number/type/filler words)
+  // against the label.
+  const textPart = restWords.filter(w=>!TYPE_WORDS.includes(stripAl(w))).join(' ').trim();
+  if(!textPart) return true; // just a bare number with no other text — still allow
   return labelNorm.includes(textPart) || textPart.includes(labelNorm) || fuzzyScore(textPart, labelNorm) <= 2;
 }
 
@@ -892,18 +965,61 @@ function findCouriersForZone(qOrRegion){
   Object.keys(data).forEach(courier=>{
     data[courier].forEach(zone=>{
       const nz = normalize(zone);
-      if(nz.includes(q) || q.includes(nz)) matches.push({courier, zone});
+      if(nz.includes(q)){ matches.push({courier, zone}); return; } // zone contains the whole query — always trustworthy
+      // The other direction (query contains this zone as a substring) is only
+      // trustworthy when every number in the query is also present in the
+      // zone text — otherwise a short region/sub-area name ("الرحاب ١") can
+      // shadow a much more specific numeric-range query ("...عمارة 113")
+      // just because it happens to be a text-prefix of what was said.
+      if(q.includes(nz)){
+        const qNums = q.match(/\d+/g) || [];
+        const nzNums = nz.match(/\d+/g) || [];
+        if(qNums.every(n=>nzNums.includes(n))) matches.push({courier, zone});
+      }
     });
   });
   if(matches.length) return matches;
 
   // 2) numeric range zones ("فردي شارع الثورة من 99 ل 121", "مصطفى النحاس من 2 ل 52")
+  let rangeMatches = [];
   Object.keys(data).forEach(courier=>{
     data[courier].forEach(zone=>{
-      if(matchesRangeZone(qOrRegion, zone)) matches.push({courier, zone});
+      if(matchesRangeZone(qOrRegion, zone)) rangeMatches.push({courier, zone});
     });
   });
-  if(matches.length) return matches;
+  if(rangeMatches.length){
+    const distinctCouriers = new Set(rangeMatches.map(m=>m.courier));
+    if(distinctCouriers.size > 1){
+      // Same number, same entity type, but more than one area's range covers
+      // it (e.g. two different sub-areas both happen to span 1-65). Try to
+      // narrow using whatever's left of the query (a region/sub-area name)
+      // against each candidate's OTHER, non-range zones — never guess blindly.
+      const qParts = q.split(/(\d+)/); // alternating text/number/text/...
+      for(let i=qParts.length-1;i>=0;i--){
+        if(/^\d+$/.test(qParts[i])){ qParts[i]=' '; break; } // remove only the LAST number
+      }
+      const restWords = qParts.join('').split(' ')
+        .filter(Boolean).filter(w=>!TYPE_WORDS.includes(stripAl(w)) && !FILLER_WORDS.includes(stripAl(w)));
+      if(restWords.length){
+        const scored = rangeMatches.map(m=>{
+          let score = 0;
+          data[m.courier].forEach(z=>{
+            if(parseRangeZone(z)) return; // compare against plain area/street names only
+            const zWords = normalize(z).split(' ');
+            restWords.forEach(w=>{ if(zWords.some(zw=> zw===w || zw.startsWith(w) || w.startsWith(zw))) score++; });
+          });
+          return { m, score };
+        });
+        const maxScore = Math.max(...scored.map(s=>s.score));
+        if(maxScore > 0){
+          const top = scored.filter(s=>s.score===maxScore).map(s=>s.m);
+          if(top.length < rangeMatches.length) rangeMatches = top;
+        }
+      }
+    }
+    return rangeMatches; // may still hold >1 distinct couriers — doSearch
+                          // shows them as candidates rather than picking one
+  }
 
   // 3) fuzzy fallback — tolerate small speech-recognition mistakes
   //    (e.g. "عمارات ملسا"/"عمارات بلسا" still finding "عمارات مليسا").
@@ -993,6 +1109,15 @@ function doSearch(query, onSpeechDone){
   if(aliasHit && regionFilter && normalize(aliasHit.region)!==normalize(regionFilter)) aliasHit = null;
 
   if(directMatches.length){
+    // Task 2 §7: never guess a winner between two DIFFERENT couriers whose
+    // ranges both cover this number — show what's known instead.
+    const distinctCouriers = Array.from(new Set(directMatches.map(m=>m.courier)));
+    if(distinctCouriers.length > 1){
+      resEl.innerHTML = `<div class="result notfound"><div class="small">أكتر من مندوب محتمل — حدد المنطقة عشان أفرق بينهم:</div>` +
+        directMatches.map(m=>`<div class="small">• <b>${m.courier}</b> — ${m.zone}</div>`).join('') + `</div>`;
+      speakAr(`فيه أكتر من مندوب محتمل، حدد المنطقة أكتر`, onSpeechDone);
+      return;
+    }
     const primary = directMatches[0];
     if(fieldMode){
       resEl.innerHTML = `<div class="result found"><div class="big">${primary.courier}</div></div>`;
@@ -1008,6 +1133,13 @@ function doSearch(query, onSpeechDone){
     let regionMatches = findCouriersForZone(aliasHit.region);
     if(regionFilter) regionMatches = filterMatchesByRegion(regionMatches, regionFilter);
     if(regionMatches.length){
+      const distinctCouriers = Array.from(new Set(regionMatches.map(m=>m.courier)));
+      if(distinctCouriers.length > 1){
+        resEl.innerHTML = `<div class="result notfound"><div class="small">أكتر من مندوب محتمل — حدد المنطقة عشان أفرق بينهم:</div>` +
+          regionMatches.map(m=>`<div class="small">• <b>${m.courier}</b> — ${m.zone}</div>`).join('') + `</div>`;
+        speakAr(`فيه أكتر من مندوب محتمل، حدد المنطقة أكتر`, onSpeechDone);
+        return;
+      }
       const primary = regionMatches[0];
       if(fieldMode){
         resEl.innerHTML = `<div class="result found"><div class="big">${primary.courier}</div></div>`;
@@ -1216,11 +1348,30 @@ updateVoiceInfo();
 // buried under our own voice. Tune CHUNK_WORDS / GAP_MS below based on real
 // testing; smaller chunks / longer gaps = more interruptible but choppier.
 let ttsActive = false, lastSpokenNormalized = '', ttsGraceTimer = null, ttsSeqId = 0;
-const TTS_CHUNK_WORDS = 1, TTS_GAP_MS = 130;
+const TTS_CHUNK_WORDS = 1, TTS_GAP_MS = 220;
 function cancelSpeaking(){
   ttsSeqId++; // invalidates any chunk still waiting on its own setTimeout/onend
   try{ speechSynthesis.cancel(); }catch(e){}
   ttsActive = false;
+  logDebugSafe('CANCEL', 'speech cancelled');
+}
+// logDebug is declared further down (after this point in the file) but, being
+// a function declaration, is hoisted and safe to call here at runtime.
+function logDebugSafe(tag, msg){ try{ logDebug(tag, msg); }catch(e){} }
+// ---------- continuous-mode live diagnostics ----------
+// Toggleable panel so real-device testing can show us exactly what the
+// recognizer hears (and how we classified it) during TTS playback, instead
+// of us guessing blind between rounds of "still doesn't work".
+const contDebugToggle = document.getElementById('contDebugToggle');
+const contDebugLog = document.getElementById('contDebugLog');
+contDebugToggle.addEventListener('change', ()=>{ contDebugLog.style.display = contDebugToggle.checked ? '' : 'none'; });
+function logDebug(tag, msg){
+  if(!contDebugToggle.checked) return;
+  const t0 = (performance.now()/1000).toFixed(2);
+  contDebugLog.textContent += `[${t0}s] ${tag}: ${msg}\n`;
+  const lines = contDebugLog.textContent.split('\n');
+  if(lines.length > 60) contDebugLog.textContent = lines.slice(-60).join('\n');
+  contDebugLog.scrollTop = contDebugLog.scrollHeight;
 }
 function speakAr(text, onDone){
   try{
@@ -1229,6 +1380,7 @@ function speakAr(text, onDone){
     lastSpokenNormalized = normalize(text); // the FULL sentence, so echo-matching
                                              // still works no matter which chunk
                                              // or gap a stray echo lands in.
+    logDebugSafe('SPEAK', `"${text}" (seq ${mySeq})`);
     const words = text.split(/\s+/).filter(Boolean);
     const chunks = [];
     for(let i=0;i<words.length;i+=TTS_CHUNK_WORDS) chunks.push(words.slice(i,i+TTS_CHUNK_WORDS).join(' '));
@@ -1238,11 +1390,13 @@ function speakAr(text, onDone){
       if(idx >= chunks.length){
         // A short grace period after the LAST chunk too — mobile audio
         // hardware/STT can lag a beat behind the moment playback stops.
+        logDebugSafe('SPEAK', `done (seq ${mySeq})`);
         ttsGraceTimer = setTimeout(()=>{ if(mySeq===ttsSeqId) ttsActive=false; }, 350);
         if(onDone) onDone();
         return;
       }
       ttsActive = true;
+      logDebugSafe('CHUNK', `"${chunks[idx]}" start (seq ${mySeq})`);
       const u = new SpeechSynthesisUtterance(chunks[idx]);
       if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; }
       else { u.lang = 'ar-SA'; }
@@ -1251,6 +1405,7 @@ function speakAr(text, onDone){
         if(mySeq !== ttsSeqId) return;
         if(idx >= chunks.length){ speakNext(); return; } // finalize (grace + onDone above)
         ttsActive = false; // the real, deliberate gap — an honest listening window
+        logDebugSafe('GAP', `${TTS_GAP_MS}ms (seq ${mySeq})`);
         setTimeout(()=>{ if(mySeq===ttsSeqId) speakNext(); }, TTS_GAP_MS);
       };
       u.onend = afterChunk; u.onerror = afterChunk;
@@ -1330,8 +1485,8 @@ function startContinuousCycle(){
   continuousRec = new SpeechRec();
   continuousRec.lang = 'ar-EG'; // search voice is always Arabic
   continuousRec.continuous = true; continuousRec.interimResults=true; continuousRec.maxAlternatives=1;
-  continuousRec.onstart=()=>{ contStatus.textContent='...'; lastRecEventAt=Date.now(); };
-  continuousRec.onerror=(e)=>{ contStatus.textContent = e.error; lastRecEventAt=Date.now(); };
+  continuousRec.onstart=()=>{ contStatus.textContent='...'; lastRecEventAt=Date.now(); logDebugSafe('REC', 'started'); };
+  continuousRec.onerror=(e)=>{ contStatus.textContent = e.error; lastRecEventAt=Date.now(); logDebugSafe('REC', `error: ${e.error} (ttsActive=${ttsActive})`); };
   continuousRec.onresult=(ev)=>{
     lastRecEventAt = Date.now();
     for(let i=lastResultIndex;i<ev.results.length;i++){
@@ -1340,12 +1495,14 @@ function startContinuousCycle(){
       if(!heard) continue;
       const echo = looksLikeEcho(heard, lastSpokenNormalized);
       if(!res.isFinal){
+        logDebugSafe('interim', `"${heard}" echo=${echo} ttsActive=${ttsActive}`);
         // Barge-in: something that isn't our own echo is coming in WHILE we're
         // talking — cut the current answer off now, don't wait for the full
         // phrase to finish transcribing.
-        if(ttsActive && !echo && !bargeInFired){ bargeInFired = true; cancelSpeaking(); }
+        if(ttsActive && !echo && !bargeInFired){ bargeInFired = true; logDebugSafe('BARGE-IN', `triggered by "${heard}"`); cancelSpeaking(); }
         continue; // still wait for the final transcript before actually searching
       }
+      logDebugSafe('FINAL', `"${heard}" echo=${echo} ttsActive=${ttsActive}`);
       if(echo) continue; // our own voice coming back through the mic — ignore it
       bargeInFired = false;
       document.getElementById('searchInput').value = res[0].transcript;
@@ -1355,6 +1512,7 @@ function startContinuousCycle(){
   };
   continuousRec.onend=()=>{
     lastRecEventAt = Date.now();
+    logDebugSafe('REC', 'ended, restarting');
     if(continuousActive){ try{ startContinuousCycle(); }catch(e){ stopContinuous(); } }
   };
   try{ continuousRec.start(); }catch(e){}
