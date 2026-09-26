@@ -462,6 +462,13 @@ function normalize(s){
 // ---------- speech-recognition error tolerance ----------
 // Levenshtein edit distance, used to tolerate small mis-transcriptions
 // (e.g. "عمارات مليسا" heard as "عمارات ملسا" or "عمارات بلسا").
+// A fuzzy fallback on a very short query is inherently unsafe — "تمام" (4
+// chars) can land within edit-distance 1-2 of a real short zone/courier name
+// purely by coincidence, and 2 chars different out of 4 is barely "similar"
+// at all. FUZZY_MIN_LEN gates fuzzy matching out entirely below this length;
+// FUZZY_RATIO is also tighter than the per-word ratio used elsewhere, since
+// this is the fallback that most directly produces a delegate name.
+const FUZZY_MIN_LEN = 6, FUZZY_RATIO = 0.25;
 function editDistance(a, b){
   const m = a.length, n = b.length;
   if(!m) return n; if(!n) return m;
@@ -713,16 +720,31 @@ document.getElementById('courierSelect').addEventListener('change', e=>{
 });
 document.getElementById('courierInput').addEventListener('input', e=>{ selectedCourier = e.target.value.trim(); });
 
-document.getElementById('addZoneBtn').addEventListener('click', async ()=>{
-  const courier = document.getElementById('courierInput').value.trim();
-  const zone = document.getElementById('zoneInput').value.trim();
+// Returns true on success (added or already-existed) so the Enter-key
+// wiring below knows whether it's safe to clear the field — a validation
+// failure (missing courier/zone) must leave the input exactly as typed.
+async function addZone(){
+  const courierEl = document.getElementById('courierInput');
+  const zoneEl = document.getElementById('zoneInput');
+  const courier = courierEl.value.trim();
+  const zone = zoneEl.value.trim();
   const st = document.getElementById('addStatus');
-  if(!courier || !zone){ st.textContent = '⚠'; return; }
+  if(!courier || !zone){ st.textContent = '⚠'; return false; }
   if(!data[courier]) data[courier] = [];
   if(!data[courier].some(z=>normalize(z)===normalize(zone))){ data[courier].push(zone); await saveData(); st.textContent='✅'; }
   else { st.textContent='ℹ️'; }
-  document.getElementById('zoneInput').value='';
   selectedCourier = courier;
+  return true;
+}
+document.getElementById('addZoneBtn').addEventListener('click', async ()=>{
+  if(await addZone()){ document.getElementById('zoneInput').value=''; document.getElementById('zoneInput').focus(); }
+});
+document.getElementById('zoneInput').addEventListener('keydown', async e=>{
+  if(e.key==='Enter'){
+    e.preventDefault();
+    const zoneEl = e.target;
+    if(await addZone()){ zoneEl.value=''; zoneEl.focus(); }
+  }
 });
 
 async function quickAdd(text){
@@ -739,9 +761,10 @@ async function quickAdd(text){
   await saveData();
   st.textContent = `✅ ${added}`;
   document.getElementById('quickInput').value='';
+  document.getElementById('quickInput').focus();
 }
 document.getElementById('quickAddBtn').addEventListener('click', ()=> quickAdd(document.getElementById('quickInput').value));
-document.getElementById('quickInput').addEventListener('keydown', e=>{ if(e.key==='Enter') quickAdd(e.target.value); });
+document.getElementById('quickInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); quickAdd(e.target.value); } });
 
 function renderDatalists(){
   const courierList = document.getElementById('courierList');
@@ -856,16 +879,25 @@ document.getElementById('listSearchBtn').addEventListener('click', doListSearch)
 document.getElementById('listSearchInput').addEventListener('keydown', e=>{ if(e.key==='Enter') doListSearch(); });
 
 // ================= region aliases =================
-document.getElementById('addAliasBtn').addEventListener('click', async ()=>{
+async function addAlias(){
   const sub = document.getElementById('subAreaInput').value.trim();
   const region = document.getElementById('parentRegionInput').value.trim();
   const st = document.getElementById('aliasStatus');
-  if(!sub || !region){ st.textContent='⚠'; return; }
+  if(!sub || !region){ st.textContent='⚠'; return false; }
   aliases[sub] = region; await saveAliases();
   st.textContent='✅';
-  document.getElementById('subAreaInput').value='';
-  document.getElementById('parentRegionInput').value='';
-});
+  return true;
+}
+async function addAliasAndClear(focusEl){
+  if(await addAlias()){
+    document.getElementById('subAreaInput').value='';
+    document.getElementById('parentRegionInput').value='';
+    if(focusEl) focusEl.focus();
+  }
+}
+document.getElementById('addAliasBtn').addEventListener('click', ()=> addAliasAndClear(document.getElementById('subAreaInput')));
+document.getElementById('subAreaInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addAliasAndClear(e.target); } });
+document.getElementById('parentRegionInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addAliasAndClear(document.getElementById('subAreaInput')); } });
 function renderAliasList(activeRegion){
   const el = document.getElementById('aliasListCard');
   const subs = Object.keys(aliases);
@@ -906,13 +938,13 @@ function renderRegionNav(){
 //    name itself so a bare search for "التجمع الأول" or "الياسمين" resolves
 //    straight to this courier too (matches the fallback search already used
 //    for region names — see findCouriersForZone(aliasHit.region) in doSearch).
-document.getElementById('addRegionContentBtn').addEventListener('click', async ()=>{
+async function addRegionContent(){
   const st = document.getElementById('rcStatus');
   const region = document.getElementById('rcRegionInput').value.trim();
   const sub = document.getElementById('rcSubAreaInput').value.trim();
   const courier = document.getElementById('rcCourierInput').value.trim();
   const streetsRaw = document.getElementById('rcStreetsInput').value.trim();
-  if(!region || !courier){ st.textContent='⚠'; return; }
+  if(!region || !courier){ st.textContent='⚠'; return false; }
   const streets = streetsRaw.split(/[,،\n]/).map(z=>z.trim()).filter(Boolean);
 
   if(sub && sub!==region){ aliases[sub] = region; await saveAliases(); }
@@ -926,11 +958,30 @@ document.getElementById('addRegionContentBtn').addEventListener('click', async (
   await saveData();
 
   st.textContent = `✅ ${added}`;
-  document.getElementById('rcSubAreaInput').value='';
-  document.getElementById('rcStreetsInput').value='';
   activeRegionNav = region;
   renderRegionNav();
   renderAliasList(region);
+  return true;
+}
+async function addRegionContentAndClear(){
+  if(await addRegionContent()){
+    // Region + courier stay — this form is meant for adding several batches
+    // of streets to the same region/courier in a row. Only the per-batch
+    // fields (sub-area, streets) clear, and focus goes back to streets so
+    // the next batch can be typed immediately.
+    document.getElementById('rcSubAreaInput').value='';
+    document.getElementById('rcStreetsInput').value='';
+    document.getElementById('rcStreetsInput').focus();
+  }
+}
+document.getElementById('addRegionContentBtn').addEventListener('click', addRegionContentAndClear);
+['rcRegionInput','rcSubAreaInput','rcCourierInput'].forEach(id=>{
+  document.getElementById(id).addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addRegionContentAndClear(); } });
+});
+// The streets field is a <textarea> (multi-line) — Enter should add a new
+// line for a second street, not submit; use Ctrl/Cmd+Enter to submit instead.
+document.getElementById('rcStreetsInput').addEventListener('keydown', e=>{
+  if(e.key==='Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); addRegionContentAndClear(); }
 });
 
 // ================= search + missed logging =================
@@ -949,11 +1000,12 @@ function findRegionForSubArea(q){
   if(/\d/.test(q)) return null;
   // fuzzy fallback for sub-areas too (STT mis-hearing) — skip range-pattern
   // entries, which must only ever match through the numeric range logic.
+  if(q.length < FUZZY_MIN_LEN) return best; // too short to safely fuzzy-match at all
   let bestScore = Infinity;
   Object.keys(aliases).forEach(sub=>{
     if(parseRangeZone(sub)) return;
     const score = fuzzyScore(q, normalize(sub));
-    const allowed = Math.max(1, Math.round(q.length*0.42));
+    const allowed = Math.max(1, Math.round(q.length*FUZZY_RATIO));
     if(score <= allowed && score < bestScore){ bestScore = score; best = { sub, region: aliases[sub] }; }
   });
   return best;
@@ -1028,13 +1080,14 @@ function findCouriersForZone(qOrRegion){
   //    compare would wrongly ignore the actual number in the query. Queries
   //    containing a digit skip this step entirely for the same reason.
   if(/\d/.test(q)) return matches;
+  if(q.length < FUZZY_MIN_LEN) return matches; // too short to safely fuzzy-match at all
   let bestScore = Infinity, bestMatch = null;
   Object.keys(data).forEach(courier=>{
     data[courier].forEach(zone=>{
       if(parseRangeZone(zone)) return;
       const nz = normalize(zone);
       const score = fuzzyScore(q, nz);
-      const allowed = Math.max(1, Math.round(q.length*0.42));
+      const allowed = Math.max(1, Math.round(q.length*FUZZY_RATIO));
       if(score <= allowed && score < bestScore){ bestScore = score; bestMatch = {courier, zone}; }
     });
   });
@@ -1332,23 +1385,19 @@ updateVoiceInfo();
 // hearing its own answer" apart from "the person asking a new question" —
 // see the continuous-mode block below for how they're used.
 //
-// IMPORTANT: native speechSynthesis audio is NOT visible to the browser's
-// echo-cancellation the way WebRTC/Web-Audio playback is — Chrome's AEC can
-// only cancel out audio it has a reference signal for, and speechSynthesis
-// never hands one over. So while a single long utterance plays, the mic is
-// either drowned out by our own voice or the recognizer just can't make
-// sense of the mixed signal — no amount of JS-side speed fixes the interim
-// results if the recognizer never gets a clean audio window to work with in
-// the first place. That's what made the previous version capture NOTHING
-// until the whole answer finished.
-// Fix: speak the answer as a sequence of short chunks with a brief, REAL
-// silence between each one. ttsActive is only true while a chunk is actually
-// sounding — during each gap the mic gets a genuinely clean, TTS-free window,
-// so barge-in speech that lands in one gets heard properly instead of being
-// buried under our own voice. Tune CHUNK_WORDS / GAP_MS below based on real
-// testing; smaller chunks / longer gaps = more interruptible but choppier.
+// NOTE — reverted: an earlier version split each answer into single-word
+// utterances with brief real gaps between them, specifically to give the
+// mic clean TTS-free windows for barge-in (native speechSynthesis audio
+// isn't visible to the browser's echo-cancellation the way WebRTC audio is,
+// so a live listening gap was the only way to get a clean shot). That
+// approach broke TTS entirely — rapid chained speechSynthesis.speak() calls
+// are a known trigger for Chrome's speech queue going silently silent and
+// never producing audio at all. Restoring reliable speech (Priority 1) comes
+// first, so this is back to one plain utterance per answer; ttsActive is
+// simply true for the whole time it's sounding. Barge-in during that window
+// relies entirely on looksLikeEcho() below and is a lower priority to
+// revisit once TTS itself is confirmed solid again.
 let ttsActive = false, lastSpokenNormalized = '', ttsGraceTimer = null, ttsSeqId = 0;
-const TTS_CHUNK_WORDS = 1, TTS_GAP_MS = 220;
 function cancelSpeaking(){
   ttsSeqId++; // invalidates any chunk still waiting on its own setTimeout/onend
   try{ speechSynthesis.cancel(); }catch(e){}
@@ -1377,42 +1426,25 @@ function speakAr(text, onDone){
   try{
     if(!('speechSynthesis' in window)){ if(onDone) onDone(); return; }
     const mySeq = ++ttsSeqId;
-    lastSpokenNormalized = normalize(text); // the FULL sentence, so echo-matching
-                                             // still works no matter which chunk
-                                             // or gap a stray echo lands in.
+    lastSpokenNormalized = normalize(text);
     logDebugSafe('SPEAK', `"${text}" (seq ${mySeq})`);
-    const words = text.split(/\s+/).filter(Boolean);
-    const chunks = [];
-    for(let i=0;i<words.length;i+=TTS_CHUNK_WORDS) chunks.push(words.slice(i,i+TTS_CHUNK_WORDS).join(' '));
-    let idx = 0;
-    function speakNext(){
+    const u = new SpeechSynthesisUtterance(text);
+    if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; }
+    else { u.lang = 'ar-SA'; }
+    u.rate = 1; u.pitch = 1; u.volume = 1; // explicit, standard — never left to an inherited default
+    u.onstart = ()=>{ if(mySeq===ttsSeqId) ttsActive = true; };
+    const finish = ()=>{
       if(mySeq !== ttsSeqId) return; // superseded by a newer answer or a barge-in cancel
-      if(idx >= chunks.length){
-        // A short grace period after the LAST chunk too — mobile audio
-        // hardware/STT can lag a beat behind the moment playback stops.
-        logDebugSafe('SPEAK', `done (seq ${mySeq})`);
-        ttsGraceTimer = setTimeout(()=>{ if(mySeq===ttsSeqId) ttsActive=false; }, 350);
-        if(onDone) onDone();
-        return;
-      }
-      ttsActive = true;
-      logDebugSafe('CHUNK', `"${chunks[idx]}" start (seq ${mySeq})`);
-      const u = new SpeechSynthesisUtterance(chunks[idx]);
-      if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; }
-      else { u.lang = 'ar-SA'; }
-      idx++;
-      const afterChunk = ()=>{
-        if(mySeq !== ttsSeqId) return;
-        if(idx >= chunks.length){ speakNext(); return; } // finalize (grace + onDone above)
-        ttsActive = false; // the real, deliberate gap — an honest listening window
-        logDebugSafe('GAP', `${TTS_GAP_MS}ms (seq ${mySeq})`);
-        setTimeout(()=>{ if(mySeq===ttsSeqId) speakNext(); }, TTS_GAP_MS);
-      };
-      u.onend = afterChunk; u.onerror = afterChunk;
-      speechSynthesis.speak(u);
-    }
+      logDebugSafe('SPEAK', `done (seq ${mySeq})`);
+      clearTimeout(ttsGraceTimer);
+      // Short grace period — mobile audio hardware/STT can lag a beat behind
+      // the moment playback actually stops.
+      ttsGraceTimer = setTimeout(()=>{ if(mySeq===ttsSeqId) ttsActive=false; }, 400);
+      if(onDone) onDone();
+    };
+    u.onend = finish; u.onerror = finish;
     speechSynthesis.cancel();
-    speakNext();
+    speechSynthesis.speak(u);
   }catch(e){ if(onDone) onDone(); }
 }
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
