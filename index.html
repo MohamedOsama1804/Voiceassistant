@@ -1027,7 +1027,9 @@ function findCouriersForZone(qOrRegion){
   let matches=[];
   const index = getZoneIndex(); // [{courier, zone, normZone, rangeParsed}], cached per `data` snapshot
   // 1) exact/substring matches (fast path, most common case)
+  let exactMatches = [];
   index.forEach(({courier, zone, normZone: nz})=>{
+    if(nz === q){ exactMatches.push({courier, zone}); return; } // literally the same text — always the most confident hit
     if(nz.includes(q)){ matches.push({courier, zone}); return; } // zone contains the whole query — always trustworthy
     // The other direction (query contains this zone as a substring) is only
     // trustworthy when every number in the query is also present in the
@@ -1040,6 +1042,10 @@ function findCouriersForZone(qOrRegion){
       if(qNums.every(n=>nzNums.includes(n))) matches.push({courier, zone});
     }
   });
+  // An exact match wins outright over broader "contains" hits — this is what
+  // lets "الياسمين" resolve straight to the courier whose zone IS "الياسمين",
+  // without needing to also say "شارع" to beat "شارع الياسمين" on a coin flip.
+  if(exactMatches.length) return exactMatches;
   if(matches.length) return matches;
 
   // 2) numeric range zones ("فردي شارع الثورة من 99 ل 121", "مصطفى النحاس من 2 ل 52")
@@ -1466,7 +1472,7 @@ const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 // text — a rare, minor "flicker" that's a good trade for cutting the typical
 // wait roughly in half or more. Tune the debounce down for more speed /
 // more risk of firing on a mid-sentence pause, or up for the opposite.
-const LOW_LATENCY_DEBOUNCE_MS = 200;
+const LOW_LATENCY_DEBOUNCE_MS = 130;
 function makeLowLatencyCommitter(onCommit){
   let timer = null, committedIndex = -1, committedText = '';
   return {
@@ -1499,9 +1505,12 @@ function wireMic(btnId, targetInputId, onResult, forceLang, lowLatency){
     rec.onend=()=>{ listening=false; btn.classList.remove('listening'); };
     rec.onerror=()=>{ listening=false; btn.classList.remove('listening'); };
     if(lowLatency){
+      rec.continuous = true; // interimResults+continuous=false is an unreliable combo across
+                              // browsers; we stop the session ourselves once committed instead.
       let lastIndex = 0;
       const committer = makeLowLatencyCommitter(transcript=>{
         document.getElementById(targetInputId).value = transcript;
+        try{ rec.stop(); }catch(e){}
         if(onResult) onResult(transcript);
       });
       rec.onresult=(ev)=>{
