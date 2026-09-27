@@ -578,8 +578,8 @@ function parseRangeZone(zoneStrRaw){
 }
 // Does a spoken query like "الرحاب عمارة 13" or "52 الميرغني" fall inside a
 // range-zone's numeric range (matching its type and odd/even rule, if any)?
-function matchesRangeZone(query, zoneStr){
-  const parsed = parseRangeZone(zoneStr);
+function matchesRangeZone(query, zoneStr, preParsed){
+  const parsed = preParsed!==undefined ? preParsed : parseRangeZone(zoneStr);
   if(!parsed) return false;
   const q = normalize(query);
   // The query can carry an earlier area number too ("الرحاب 1 عمارة 113") —
@@ -641,7 +641,7 @@ aliasesRef.on('value', snap=>{
   renderAll();
 });
 
-async function saveData(){ try{ await dataRef.set(data); }catch(e){ alert('Save failed — are you signed in?'); } }
+async function saveData(){ zoneIndexCache = null; try{ await dataRef.set(data); }catch(e){ alert('Save failed — are you signed in?'); } }
 async function saveAliases(){ try{ await aliasesRef.set(aliases); }catch(e){ alert('Save failed — are you signed in?'); } }
 
 // ================= auth =================
@@ -1010,34 +1010,42 @@ function findRegionForSubArea(q){
   });
   return best;
 }
+let zoneIndexCache = null; // { forData, entries: [{courier, zone, normZone, rangeParsed}] }
+function getZoneIndex(){
+  if(zoneIndexCache && zoneIndexCache.forData === data) return zoneIndexCache.entries;
+  const entries = [];
+  Object.keys(data).forEach(courier=>{
+    data[courier].forEach(zone=>{
+      entries.push({ courier, zone, normZone: normalize(zone), rangeParsed: parseRangeZone(zone) });
+    });
+  });
+  zoneIndexCache = { forData: data, entries };
+  return entries;
+}
 function findCouriersForZone(qOrRegion){
   const q = normalize(qOrRegion);
   let matches=[];
+  const index = getZoneIndex(); // [{courier, zone, normZone, rangeParsed}], cached per `data` snapshot
   // 1) exact/substring matches (fast path, most common case)
-  Object.keys(data).forEach(courier=>{
-    data[courier].forEach(zone=>{
-      const nz = normalize(zone);
-      if(nz.includes(q)){ matches.push({courier, zone}); return; } // zone contains the whole query — always trustworthy
-      // The other direction (query contains this zone as a substring) is only
-      // trustworthy when every number in the query is also present in the
-      // zone text — otherwise a short region/sub-area name ("الرحاب ١") can
-      // shadow a much more specific numeric-range query ("...عمارة 113")
-      // just because it happens to be a text-prefix of what was said.
-      if(q.includes(nz)){
-        const qNums = q.match(/\d+/g) || [];
-        const nzNums = nz.match(/\d+/g) || [];
-        if(qNums.every(n=>nzNums.includes(n))) matches.push({courier, zone});
-      }
-    });
+  index.forEach(({courier, zone, normZone: nz})=>{
+    if(nz.includes(q)){ matches.push({courier, zone}); return; } // zone contains the whole query — always trustworthy
+    // The other direction (query contains this zone as a substring) is only
+    // trustworthy when every number in the query is also present in the
+    // zone text — otherwise a short region/sub-area name ("الرحاب ١") can
+    // shadow a much more specific numeric-range query ("...عمارة 113")
+    // just because it happens to be a text-prefix of what was said.
+    if(q.includes(nz)){
+      const qNums = q.match(/\d+/g) || [];
+      const nzNums = nz.match(/\d+/g) || [];
+      if(qNums.every(n=>nzNums.includes(n))) matches.push({courier, zone});
+    }
   });
   if(matches.length) return matches;
 
   // 2) numeric range zones ("فردي شارع الثورة من 99 ل 121", "مصطفى النحاس من 2 ل 52")
   let rangeMatches = [];
-  Object.keys(data).forEach(courier=>{
-    data[courier].forEach(zone=>{
-      if(matchesRangeZone(qOrRegion, zone)) rangeMatches.push({courier, zone});
-    });
+  index.forEach(({courier, zone, rangeParsed})=>{
+    if(rangeParsed && matchesRangeZone(qOrRegion, zone, rangeParsed)) rangeMatches.push({courier, zone});
   });
   if(rangeMatches.length){
     const distinctCouriers = new Set(rangeMatches.map(m=>m.courier));
@@ -1082,14 +1090,11 @@ function findCouriersForZone(qOrRegion){
   if(/\d/.test(q)) return matches;
   if(q.length < FUZZY_MIN_LEN) return matches; // too short to safely fuzzy-match at all
   let bestScore = Infinity, bestMatch = null;
-  Object.keys(data).forEach(courier=>{
-    data[courier].forEach(zone=>{
-      if(parseRangeZone(zone)) return;
-      const nz = normalize(zone);
-      const score = fuzzyScore(q, nz);
-      const allowed = Math.max(1, Math.round(q.length*FUZZY_RATIO));
-      if(score <= allowed && score < bestScore){ bestScore = score; bestMatch = {courier, zone}; }
-    });
+  index.forEach(({courier, zone, normZone: nz, rangeParsed})=>{
+    if(rangeParsed) return;
+    const score = fuzzyScore(q, nz);
+    const allowed = Math.max(1, Math.round(q.length*FUZZY_RATIO));
+    if(score <= allowed && score < bestScore){ bestScore = score; bestMatch = {courier, zone}; }
   });
   if(bestMatch) matches.push(bestMatch);
   return matches;
@@ -1448,7 +1453,40 @@ function speakAr(text, onDone){
   }catch(e){ if(onDone) onDone(); }
 }
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-function wireMic(btnId, targetInputId, onResult, forceLang){
+// ---------- low-latency commit (speed request) ----------
+// The browser's SpeechRecognition only marks a result `isFinal` after it
+// decides the person has stopped talking — which in practice means waiting
+// for an extra few hundred ms to over a second of trailing silence on TOP of
+// however long they took to speak. That's the single biggest source of felt
+// delay in the whole pipeline (everything else — search, TTS start — is now
+// sub-millisecond to a few ms). Instead of waiting for that official signal,
+// we commit to an interim guess once it's stopped changing for a short beat
+// (LOW_LATENCY_DEBOUNCE_MS) and search immediately. If the interim guess was
+// wrong and the real final differs, we just search again with the corrected
+// text — a rare, minor "flicker" that's a good trade for cutting the typical
+// wait roughly in half or more. Tune the debounce down for more speed /
+// more risk of firing on a mid-sentence pause, or up for the opposite.
+const LOW_LATENCY_DEBOUNCE_MS = 200;
+function makeLowLatencyCommitter(onCommit){
+  let timer = null, committedIndex = -1, committedText = '';
+  return {
+    onInterim(index, transcript){
+      clearTimeout(timer);
+      timer = setTimeout(()=>{
+        committedIndex = index; committedText = normalize(transcript);
+        onCommit(transcript);
+      }, LOW_LATENCY_DEBOUNCE_MS);
+    },
+    onFinal(index, transcript){
+      clearTimeout(timer);
+      const norm = normalize(transcript);
+      if(index===committedIndex && norm===committedText) return; // already answered via the interim commit, nothing changed
+      committedIndex = index; committedText = norm;
+      onCommit(transcript);
+    }
+  };
+}
+function wireMic(btnId, targetInputId, onResult, forceLang, lowLatency){
   const btn = document.getElementById(btnId);
   if(!SpeechRec){ btn.style.display='none'; return; }
   let rec=null, listening=false;
@@ -1456,23 +1494,42 @@ function wireMic(btnId, targetInputId, onResult, forceLang){
     if(listening){ rec && rec.stop(); return; }
     rec = new SpeechRec();
     rec.lang = forceLang || (lang==='ar' ? 'ar-EG' : 'en-US');
-    rec.interimResults=false; rec.maxAlternatives=1;
+    rec.interimResults = !!lowLatency; rec.maxAlternatives=1;
     rec.onstart=()=>{ listening=true; btn.classList.add('listening'); };
     rec.onend=()=>{ listening=false; btn.classList.remove('listening'); };
     rec.onerror=()=>{ listening=false; btn.classList.remove('listening'); };
-    rec.onresult=(ev)=>{
-      const tr = ev.results[0][0].transcript;
-      document.getElementById(targetInputId).value = tr;
-      if(onResult) onResult(tr);
-    };
+    if(lowLatency){
+      let lastIndex = 0;
+      const committer = makeLowLatencyCommitter(transcript=>{
+        document.getElementById(targetInputId).value = transcript;
+        if(onResult) onResult(transcript);
+      });
+      rec.onresult=(ev)=>{
+        for(let i=lastIndex;i<ev.results.length;i++){
+          const res = ev.results[i];
+          const tr = res[0].transcript;
+          if(!tr) continue;
+          document.getElementById(targetInputId).value = tr; // show progress immediately either way
+          if(res.isFinal) committer.onFinal(i, tr); else committer.onInterim(i, tr);
+        }
+        lastIndex = ev.results.length;
+      };
+    } else {
+      rec.onresult=(ev)=>{
+        const tr = ev.results[0][0].transcript;
+        document.getElementById(targetInputId).value = tr;
+        if(onResult) onResult(tr);
+      };
+    }
     rec.start();
   });
 }
 wireMic('micCourier','courierInput', t=>{ selectedCourier = t.trim(); });
 wireMic('micZone','zoneInput');
 wireMic('micQuick','quickInput');
-// Search mic is ALWAYS Arabic (ar-EG), regardless of UI language toggle.
-wireMic('micSearch','searchInput', t=> doSearch(t), 'ar-EG');
+// Search mic is ALWAYS Arabic (ar-EG), regardless of UI language toggle, and
+// runs low-latency (this is the actual "ask a question" path).
+wireMic('micSearch','searchInput', t=> doSearch(t), 'ar-EG', true);
 
 // continuous mode
 // v2 — real barge-in (New Task, latest request).
@@ -1514,6 +1571,12 @@ function looksLikeEcho(heard, spoken){
 function startContinuousCycle(){
   if(!continuousActive || !SpeechRec) return;
   lastResultIndex=0; bargeInFired=false; lastRecEventAt=Date.now();
+  // See "low-latency commit" above — cuts the typical post-speech wait
+  // roughly in half or more by not waiting for the browser's own isFinal.
+  const committer = makeLowLatencyCommitter(transcript=>{
+    document.getElementById('searchInput').value = transcript;
+    doSearch(transcript);
+  });
   continuousRec = new SpeechRec();
   continuousRec.lang = 'ar-EG'; // search voice is always Arabic
   continuousRec.continuous = true; continuousRec.interimResults=true; continuousRec.maxAlternatives=1;
@@ -1525,20 +1588,30 @@ function startContinuousCycle(){
       const res = ev.results[i];
       const heard = normalize(res[0].transcript);
       if(!heard) continue;
-      const echo = looksLikeEcho(heard, lastSpokenNormalized);
       if(!res.isFinal){
-        logDebugSafe('interim', `"${heard}" echo=${echo} ttsActive=${ttsActive}`);
-        // Barge-in: something that isn't our own echo is coming in WHILE we're
-        // talking — cut the current answer off now, don't wait for the full
-        // phrase to finish transcribing.
-        if(ttsActive && !echo && !bargeInFired){ bargeInFired = true; logDebugSafe('BARGE-IN', `triggered by "${heard}"`); cancelSpeaking(); }
-        continue; // still wait for the final transcript before actually searching
+        if(ttsActive){
+          // Echo-checking (and the low-latency commit below) only matter
+          // while we're NOT speaking — while we are, an interim result is
+          // purely a barge-in signal, not something to search on yet.
+          const echo = looksLikeEcho(heard, lastSpokenNormalized);
+          logDebugSafe('interim', `"${heard}" echo=${echo}`);
+          // Barge-in: something that isn't our own echo is coming in WHILE
+          // we're talking — cut the current answer off now, don't wait for
+          // the full phrase to finish transcribing.
+          if(!echo && !bargeInFired){ bargeInFired = true; logDebugSafe('BARGE-IN', `triggered by "${heard}"`); cancelSpeaking(); }
+        } else {
+          committer.onInterim(i, res[0].transcript);
+        }
+        continue;
       }
+      // Only treat a final result as "our own echo" while TTS is actually
+      // active (or in its brief grace window) — never once it's finished,
+      // even if the next real question happens to resemble the last answer.
+      const echo = ttsActive && looksLikeEcho(heard, lastSpokenNormalized);
       logDebugSafe('FINAL', `"${heard}" echo=${echo} ttsActive=${ttsActive}`);
       if(echo) continue; // our own voice coming back through the mic — ignore it
       bargeInFired = false;
-      document.getElementById('searchInput').value = res[0].transcript;
-      doSearch(res[0].transcript);
+      committer.onFinal(i, res[0].transcript);
     }
     lastResultIndex = ev.results.length;
   };
