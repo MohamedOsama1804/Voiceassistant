@@ -235,6 +235,10 @@
   <!-- LIST (auth only) -->
   <div id="paneList" class="authOnly hidden" style="display:none;">
     <div class="card">
+      <div class="label" data-i18n="listRegionLabel">Show only one region (optional)</div>
+      <select id="listRegionFilter" style="margin-bottom:10px;">
+        <option value="" data-i18n="regionFilterAll">All regions</option>
+      </select>
       <div class="row">
         <input type="text" id="listSearchInput" data-i18n-ph="listSearchPh" placeholder="Search a courier or an area...">
         <button class="btn btn-primary" id="listSearchBtn" style="flex:0 0 auto;padding:0 16px;">
@@ -378,6 +382,8 @@ const translations = {
     responsibleCourierLabel:"Responsible courier", responsibleCourierPh:"Type or pick existing courier",
     addRegionContentBtn:"Save region content", regionNavAll:"All",
     contDebugLabel:"Show live diagnostics (for testing barge-in)",
+    listRegionLabel:"Show only one region (optional)", listRegionNone:"Not linked to any region",
+    listRegionEmpty:"No couriers found for this region", listShowing:"Showing",
   },
   ar: {
     appTitle:"دليل المناطق", tabSearch:"بحث", tabAdd:"إضافة", tabList:"المناديب", tabRegions:"المناطق",
@@ -412,6 +418,8 @@ const translations = {
     responsibleCourierLabel:"المندوب المسؤول", responsibleCourierPh:"اكتب أو اختار مندوب موجود",
     addRegionContentBtn:"حفظ محتوى المنطقة", regionNavAll:"الكل",
     contDebugLabel:"إظهار تشخيص مباشر (لاختبار المقاطعة)",
+    listRegionLabel:"عرض منطقة معينة بس (اختياري)", listRegionNone:"مش مربوطة بأي منطقة",
+    listRegionEmpty:"مفيش مناديب للمنطقة دي", listShowing:"معروض",
   }
 };
 let lang = 'en';
@@ -805,11 +813,16 @@ function renderList(highlightCourier, highlightZone){
       restoreFocus.val = ''; restoreFocus.selStart = 0; restoreFocus.selEnd = 0;
     }
   }
-  const names = Object.keys(data);
-  if(!names.length){ el.innerHTML = `<div class="empty">${t('noData')}</div>`; return; }
+  const allNames = Object.keys(data);
+  if(!allNames.length){ el.innerHTML = `<div class="empty">${t('noData')}</div>`; return; }
+  const names = visibleCouriers();
+  if(!names.length){ el.innerHTML = `<div class="empty">${t('listRegionEmpty')}</div>`; return; }
+  const filterActive = names.length !== allNames.length || !!document.getElementById('listRegionFilter').value;
+  const countLine = filterActive ? `<div class="hint" style="margin-bottom:8px;">${t('listShowing')} ${names.length} / ${allNames.length}</div>` : '';
   // Show a matched courier first so it's immediately visible without scrolling.
+  if(highlightCourier && !names.includes(highlightCourier)) highlightCourier = null; // outside the chosen region
   const ordered = highlightCourier ? [highlightCourier, ...names.filter(n=>n!==highlightCourier)] : names;
-  el.innerHTML = ordered.map(n=>`
+  el.innerHTML = countLine + ordered.map(n=>`
     <div class="courier-card${n===highlightCourier ? ' highlighted' : ''}" data-courier-card="${n}">
       <div class="courier-name"><span>${n} (${data[n].length})</span><span class="del" data-c="${n}">✕</span></div>
       <div>${data[n].map((z,i)=>`<span class="zonepill${n===highlightCourier && z===highlightZone ? ' highlighted' : ''}">${z} <button data-c="${n}" data-i="${i}">✕</button></span>`).join('')}</div>
@@ -867,16 +880,18 @@ function doListSearch(){
   const raw = document.getElementById('listSearchInput').value.trim();
   if(!raw){ renderList(); return; }
   const q = normalize(raw);
+  const scoped = visibleCouriers(); // only couriers inside the chosen region (or all)
   // 1) direct courier-name match
-  const courierHit = Object.keys(data).find(n=> normalize(n).includes(q) || q.includes(normalize(n)));
+  const courierHit = scoped.find(n=> normalize(n).includes(q) || q.includes(normalize(n)));
   if(courierHit){ renderList(courierHit, null); return; }
-  // 2) zone/area match (same matching engine as the Search tab)
-  const zoneMatches = findCouriersForZone(raw);
+  // 2) zone/area match (same matching engine as the Search tab), limited to the region
+  const zoneMatches = findCouriersForZone(raw).filter(m=> scoped.includes(m.courier));
   if(zoneMatches.length){ renderList(zoneMatches[0].courier, zoneMatches[0].zone); return; }
-  renderList(); // no match — just show the full list
+  renderList(); // no match — just show the (region-scoped) list
 }
 document.getElementById('listSearchBtn').addEventListener('click', doListSearch);
 document.getElementById('listSearchInput').addEventListener('keydown', e=>{ if(e.key==='Enter') doListSearch(); });
+document.getElementById('listRegionFilter').addEventListener('change', doListSearch);
 
 // ================= region aliases =================
 async function addAlias(){
@@ -1137,12 +1152,51 @@ function filterMatchesByRegion(matches, regionFilter){
   return tagged.length ? tagged : matches;
 }
 function renderRegionFilterOptions(){
-  const sel = document.getElementById('regionFilterSelect');
-  if(!sel) return;
-  const prev = sel.value;
   const regions = Array.from(new Set(Object.values(aliases))).sort((a,b)=> a.localeCompare(b,'ar'));
-  sel.innerHTML = `<option value="">${t('regionFilterAll')}</option>` + regions.map(r=>`<option value="${r}">${r}</option>`).join('');
-  if(regions.includes(prev)) sel.value = prev;
+  const opts = regions.map(r=>`<option value="${r}">${r}</option>`).join('');
+  const sel = document.getElementById('regionFilterSelect');
+  if(sel){
+    const prev = sel.value;
+    sel.innerHTML = `<option value="">${t('regionFilterAll')}</option>` + opts;
+    if(regions.includes(prev)) sel.value = prev;
+  }
+  const lsel = document.getElementById('listRegionFilter');
+  if(lsel){
+    const prev = lsel.value;
+    lsel.innerHTML = `<option value="">${t('regionFilterAll')}</option>` + opts +
+      `<option value="__none__">${t('listRegionNone')}</option>`;
+    if(regions.includes(prev) || prev==='__none__') lsel.value = prev;
+  }
+}
+
+// ---- Couriers-tab region filter ----
+// A zone "belongs" to a region if it IS the region name, or it's (or mentions)
+// a sub-area that the alias table links to that region. Same alias table the
+// Search tab's filter uses — no new data. Deliberately one-directional: a
+// short zone that merely happens to sit inside some sub-area's name is not
+// treated as belonging to it.
+function zoneBelongsToRegion(zone, region){
+  const nz = normalize(zone), nr = normalize(region);
+  if(nz === nr) return true;
+  return Object.keys(aliases).some(sub=>{
+    if(normalize(aliases[sub]) !== nr) return false;
+    const ns = normalize(sub);
+    return ns.length >= 2 && (nz === ns || nz.includes(ns));
+  });
+}
+function zoneBelongsToAnyRegion(zone){
+  const regions = new Set(Object.values(aliases));
+  for(const r of regions){ if(zoneBelongsToRegion(zone, r)) return true; }
+  return false;
+}
+// Couriers visible under the Couriers tab's current region choice.
+function visibleCouriers(){
+  const el = document.getElementById('listRegionFilter');
+  const sel = el ? el.value : '';
+  const names = Object.keys(data);
+  if(!sel) return names;
+  if(sel === '__none__') return names.filter(n=> !data[n].some(zoneBelongsToAnyRegion));
+  return names.filter(n=> data[n].some(z=> zoneBelongsToRegion(z, sel)));
 }
 function logMiss(term){
   const key = normalize(term).replace(/[.#$\[\]\/]/g,'_').slice(0,120) || 'empty';
@@ -1473,12 +1527,64 @@ const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 // wait roughly in half or more. Tune the debounce down for more speed /
 // more risk of firing on a mid-sentence pause, or up for the opposite.
 const LOW_LATENCY_DEBOUNCE_MS = 130;
-function makeLowLatencyCommitter(onCommit){
+
+// ---------- capture accuracy ----------
+// The browser's STT hands back several ranked guesses per phrase. Its #1 pick
+// is often off by a letter or two while the right name sits at #2-#5. We
+// can't improve the raw audio model, but we CAN use what the STT engine
+// can't know — the real list of couriers/zones/regions — to choose between
+// its own guesses. Because matching is strict (no hallucinated matches), an
+// alternative that lands exactly on real data is far more trustworthy than
+// the top guess that lands on nothing.
+const STT_ALTERNATIVES = 5;
+// finalMode=true : the phrase is finished — exact zone/alias hits and numeric
+//                  range hits both count.
+// finalMode=false: provisional (mid-speech) — only accept a plain-name exact
+//                  hit that isn't merely the start of a longer name
+//                  ("الرحاب 1" vs "الرحاب 1 الجزء التاني") and never a
+//                  numeric query, because a half-said number is a valid but
+//                  WRONG number ("عمارة 1" on the way to "عمارة 13").
+function isConfidentMatch(t, finalMode){
+  const x = expandColloquialNumbers(t);
+  const q = normalize(x);
+  if(!q) return false;
+  const index = getZoneIndex();
+  if(/\d/.test(q)){
+    if(!finalMode) return false;
+    return index.some(e=> e.normZone === q) ||
+           index.some(e=> e.rangeParsed && matchesRangeZone(x, e.zone, e.rangeParsed));
+  }
+  const zoneNorms = index.map(e=>e.normZone);
+  const aliasNorms = Object.keys(aliases).map(normalize);
+  if(!(zoneNorms.includes(q) || aliasNorms.includes(q))) return false;
+  if(!finalMode){
+    const startsLonger = n => n !== q && n.startsWith(q + ' ');
+    if(zoneNorms.some(startsLonger) || aliasNorms.some(startsLonger)) return false;
+  }
+  return true;
+}
+function hasAnyMatch(t){
+  const x = expandColloquialNumbers(t);
+  return findCouriersForZone(x).length > 0 || !!findRegionForSubArea(normalize(x));
+}
+function resolveBestTranscript(res){
+  const alts = [];
+  for(let k=0;k<res.length;k++){ const t = res[k] && res[k].transcript; if(t && t.trim()) alts.push(t); }
+  if(alts.length <= 1) return alts[0] || '';
+  return alts.find(t=> isConfidentMatch(t, true))   // an alternative that lands exactly on real data
+      || alts.find(hasAnyMatch)                      // otherwise the best-ranked one that matches anything real
+      || alts[0];                                    // nothing matches — keep the top guess (shows "unknown")
+}
+
+// `canCommitInterim` (optional): a provisional commit only happens if this
+// says the interim text is trustworthy. Otherwise we wait for the final.
+function makeLowLatencyCommitter(onCommit, canCommitInterim){
   let timer = null, committedIndex = -1, committedText = '';
   return {
     onInterim(index, transcript){
       clearTimeout(timer);
       timer = setTimeout(()=>{
+        if(canCommitInterim && !canCommitInterim(transcript)) return; // not sure yet — wait for the authoritative final
         committedIndex = index; committedText = normalize(transcript);
         onCommit(transcript);
       }, LOW_LATENCY_DEBOUNCE_MS);
@@ -1500,28 +1606,30 @@ function wireMic(btnId, targetInputId, onResult, forceLang, lowLatency){
     if(listening){ rec && rec.stop(); return; }
     rec = new SpeechRec();
     rec.lang = forceLang || (lang==='ar' ? 'ar-EG' : 'en-US');
-    rec.interimResults = !!lowLatency; rec.maxAlternatives=1;
+    rec.interimResults = !!lowLatency; rec.maxAlternatives = lowLatency ? STT_ALTERNATIVES : 1;
     rec.onstart=()=>{ listening=true; btn.classList.add('listening'); };
     rec.onend=()=>{ listening=false; btn.classList.remove('listening'); };
     rec.onerror=()=>{ listening=false; btn.classList.remove('listening'); };
     if(lowLatency){
       rec.continuous = true; // interimResults+continuous=false is an unreliable combo across
                               // browsers; we stop the session ourselves once committed instead.
-      let lastIndex = 0;
       const committer = makeLowLatencyCommitter(transcript=>{
         document.getElementById(targetInputId).value = transcript;
         try{ rec.stop(); }catch(e){}
         if(onResult) onResult(transcript);
-      });
+      }, t=> isConfidentMatch(t, false));
       rec.onresult=(ev)=>{
-        for(let i=lastIndex;i<ev.results.length;i++){
+        // Start at ev.resultIndex, NOT "everything after the last one seen":
+        // a result keeps getting updated in place (partial → refined → final)
+        // under the same index, and skipping past it after the first update
+        // drops every later refinement and the final.
+        for(let i=ev.resultIndex;i<ev.results.length;i++){
           const res = ev.results[i];
-          const tr = res[0].transcript;
-          if(!tr) continue;
-          document.getElementById(targetInputId).value = tr; // show progress immediately either way
-          if(res.isFinal) committer.onFinal(i, tr); else committer.onInterim(i, tr);
+          const best = resolveBestTranscript(res);
+          if(!best) continue;
+          document.getElementById(targetInputId).value = best; // show progress immediately either way
+          if(res.isFinal) committer.onFinal(i, best); else committer.onInterim(i, best);
         }
-        lastIndex = ev.results.length;
       };
     } else {
       rec.onresult=(ev)=>{
@@ -1582,20 +1690,26 @@ function startContinuousCycle(){
   lastResultIndex=0; bargeInFired=false; lastRecEventAt=Date.now();
   // See "low-latency commit" above — cuts the typical post-speech wait
   // roughly in half or more by not waiting for the browser's own isFinal.
+  // Provisional (mid-speech) commits only happen when confident; the final
+  // result is always authoritative and corrects anything provisional.
   const committer = makeLowLatencyCommitter(transcript=>{
     document.getElementById('searchInput').value = transcript;
     doSearch(transcript);
-  });
+  }, t=> isConfidentMatch(t, false));
   continuousRec = new SpeechRec();
   continuousRec.lang = 'ar-EG'; // search voice is always Arabic
-  continuousRec.continuous = true; continuousRec.interimResults=true; continuousRec.maxAlternatives=1;
+  continuousRec.continuous = true; continuousRec.interimResults=true; continuousRec.maxAlternatives=STT_ALTERNATIVES;
   continuousRec.onstart=()=>{ contStatus.textContent='...'; lastRecEventAt=Date.now(); logDebugSafe('REC', 'started'); };
   continuousRec.onerror=(e)=>{ contStatus.textContent = e.error; lastRecEventAt=Date.now(); logDebugSafe('REC', `error: ${e.error} (ttsActive=${ttsActive})`); };
   continuousRec.onresult=(ev)=>{
     lastRecEventAt = Date.now();
-    for(let i=lastResultIndex;i<ev.results.length;i++){
+    // ev.resultIndex, not "everything after the last one seen": a result is
+    // updated in place (partial → refined → final) under the same index, and
+    // skipping past it after its first update dropped every refinement and
+    // the final — only the first half-heard fragment was ever searched.
+    for(let i=ev.resultIndex;i<ev.results.length;i++){
       const res = ev.results[i];
-      const heard = normalize(res[0].transcript);
+      const heard = normalize(res[0].transcript); // top guess — used only for echo/barge-in checks
       if(!heard) continue;
       if(!res.isFinal){
         if(ttsActive){
@@ -1609,7 +1723,7 @@ function startContinuousCycle(){
           // the full phrase to finish transcribing.
           if(!echo && !bargeInFired){ bargeInFired = true; logDebugSafe('BARGE-IN', `triggered by "${heard}"`); cancelSpeaking(); }
         } else {
-          committer.onInterim(i, res[0].transcript);
+          committer.onInterim(i, resolveBestTranscript(res));
         }
         continue;
       }
@@ -1620,9 +1734,8 @@ function startContinuousCycle(){
       logDebugSafe('FINAL', `"${heard}" echo=${echo} ttsActive=${ttsActive}`);
       if(echo) continue; // our own voice coming back through the mic — ignore it
       bargeInFired = false;
-      committer.onFinal(i, res[0].transcript);
+      committer.onFinal(i, resolveBestTranscript(res));
     }
-    lastResultIndex = ev.results.length;
   };
   continuousRec.onend=()=>{
     lastRecEventAt = Date.now();
