@@ -390,6 +390,7 @@ const translations = {
     contDebugLabel:"Show live diagnostics (for testing barge-in)",
     listRegionLabel:"Show only one region (optional)", listRegionNone:"Not linked to any region",
     listRegionEmpty:"No couriers found for this region", listShowing:"Showing",
+    listSearchEmpty:"No couriers match this search",
     editName:"Edit name", editSave:"Save", editNameInvalid:"Name can't be empty or contain . # $ [ ] /",
     editNameExists:"That name already exists — merge these zones into it?",
     liveResultsAll:"All matches for", liveResultsFor:"for",
@@ -429,6 +430,7 @@ const translations = {
     contDebugLabel:"إظهار تشخيص مباشر (لاختبار المقاطعة)",
     listRegionLabel:"عرض منطقة معينة بس (اختياري)", listRegionNone:"مش مربوطة بأي منطقة",
     listRegionEmpty:"مفيش مناديب للمنطقة دي", listShowing:"معروض",
+    listSearchEmpty:"مفيش نتايج مطابقة للبحث ده",
     editName:"تعديل الاسم", editSave:"حفظ", editNameInvalid:"الاسم مينفعش يبقى فاضي ولا فيه . # $ [ ] /",
     editNameExists:"الاسم ده موجود بالفعل — أدمج المناطق دي فيه؟",
     liveResultsAll:"كل النتائج اللي فيها", liveResultsFor:"لـ",
@@ -867,12 +869,20 @@ function renderList(highlightCourier, highlightZone){
   }
   const allNames = Object.keys(data);
   if(!allNames.length){ el.innerHTML = `<div class="empty">${t('noData')}</div>`; return; }
-  const names = visibleCouriers();
-  if(!names.length){ el.innerHTML = `<div class="empty">${t('listRegionEmpty')}</div>`; return; }
-  const filterActive = names.length !== allNames.length || !!document.getElementById('listRegionFilter').value;
+  const regionScoped = visibleCouriers();
+  if(!regionScoped.length){ el.innerHTML = `<div class="empty">${t('listRegionEmpty')}</div>`; return; }
+  // Live text filter: show EVERY courier that has anything matching, not just
+  // one "best" answer — this is a loose "contains" filter (not the strict
+  // single-result search engine used on the Search tab), since the point
+  // here is "show me all 3 couriers whose data mentions الرحاب".
+  const searchEl = document.getElementById('listSearchInput');
+  const q = normalize((searchEl ? searchEl.value : '').trim());
+  const names = q ? regionScoped.filter(n=> normalize(n).includes(q) || data[n].some(z=> normalize(z).includes(q))) : regionScoped;
+  if(!names.length){ el.innerHTML = `<div class="empty">${t('listSearchEmpty')}</div>`; return; }
+  const filterActive = names.length !== allNames.length || q || !!document.getElementById('listRegionFilter').value;
   const countLine = filterActive ? `<div class="hint" style="margin-bottom:8px;">${t('listShowing')} ${names.length} / ${allNames.length}</div>` : '';
   // Show a matched courier first so it's immediately visible without scrolling.
-  if(highlightCourier && !names.includes(highlightCourier)) highlightCourier = null; // outside the chosen region
+  if(highlightCourier && !names.includes(highlightCourier)) highlightCourier = null; // outside the chosen region/search
   const ordered = highlightCourier ? [highlightCourier, ...names.filter(n=>n!==highlightCourier)] : names;
   el.innerHTML = countLine + ordered.map(n=>`
     <div class="courier-card${n===highlightCourier ? ' highlighted' : ''}" data-courier-card="${n}">
@@ -885,7 +895,7 @@ function renderList(highlightCourier, highlightZone){
         <button class="btn btn-outline cedit-cancel" data-c="${n}" style="flex:0 0 auto;padding:8px 12px;">✕</button>
       </div>
       <div class="status cedit-status" data-c="${n}"></div>
-      <div>${data[n].map((z,i)=>`<span class="zonepill${n===highlightCourier && z===highlightZone ? ' highlighted' : ''}">${z} <button data-c="${n}" data-i="${i}">✕</button></span>`).join('')}</div>
+      <div>${data[n].map((z,i)=>`<span class="zonepill${(n===highlightCourier && z===highlightZone) || (q && normalize(z).includes(q)) ? ' highlighted' : ''}">${z} <button data-c="${n}" data-i="${i}">✕</button></span>`).join('')}</div>
       <div class="row" style="margin-top:8px;">
         <input type="text" class="inlineAddInput" data-c="${n}" list="zoneList" placeholder="+ zone">
         <button class="btn btn-primary inlineAddBtn" data-c="${n}" style="flex:0 0 auto;padding:8px 14px;">+</button>
@@ -1034,21 +1044,17 @@ document.addEventListener('click', e=>{
 });
 
 // ---- Couriers-tab search: find by courier name OR by zone/area name ----
-function doListSearch(){
-  const raw = document.getElementById('listSearchInput').value.trim();
-  if(!raw){ renderList(); return; }
-  const q = normalize(raw);
-  const scoped = visibleCouriers(); // only couriers inside the chosen region (or all)
-  // 1) direct courier-name match
-  const courierHit = scoped.find(n=> normalize(n).includes(q) || q.includes(normalize(n)));
-  if(courierHit){ renderList(courierHit, null); return; }
-  // 2) zone/area match (same matching engine as the Search tab), limited to the region
-  const zoneMatches = findCouriersForZone(raw).filter(m=> scoped.includes(m.courier));
-  if(zoneMatches.length){ renderList(zoneMatches[0].courier, zoneMatches[0].zone); return; }
-  renderList(); // no match — just show the (region-scoped) list
-}
+// renderList() reads #listSearchInput directly now, so "searching" is just
+// re-rendering. Live-filters as you type (a small debounce avoids rebuilding
+// the list on every single keystroke while typing fast).
+let listSearchDebounce = null;
+function doListSearch(){ renderList(); }
 document.getElementById('listSearchBtn').addEventListener('click', doListSearch);
 document.getElementById('listSearchInput').addEventListener('keydown', e=>{ if(e.key==='Enter') doListSearch(); });
+document.getElementById('listSearchInput').addEventListener('input', ()=>{
+  clearTimeout(listSearchDebounce);
+  listSearchDebounce = setTimeout(doListSearch, 120);
+});
 document.getElementById('listRegionFilter').addEventListener('change', doListSearch);
 
 // ================= region aliases =================
