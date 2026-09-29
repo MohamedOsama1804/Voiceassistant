@@ -179,6 +179,10 @@
         <span data-i18n="searchBtn">Find courier</span>
       </button>
       <div id="searchResult"></div>
+      <div id="liveResultsWrap" style="display:none;">
+        <div class="label" id="liveResultsLabel" style="margin-top:6px;"></div>
+        <div id="liveResultsList"></div>
+      </div>
       <div class="status" id="searchStatus"></div>
       <div class="hint" id="voiceInfo"></div>
     </div>
@@ -388,6 +392,7 @@ const translations = {
     listRegionEmpty:"No couriers found for this region", listShowing:"Showing",
     editName:"Edit name", editSave:"Save", editNameInvalid:"Name can't be empty or contain . # $ [ ] /",
     editNameExists:"That name already exists — merge these zones into it?",
+    liveResultsAll:"All matches for", liveResultsFor:"for",
   },
   ar: {
     appTitle:"دليل المناطق", tabSearch:"بحث", tabAdd:"إضافة", tabList:"المناديب", tabRegions:"المناطق",
@@ -426,6 +431,7 @@ const translations = {
     listRegionEmpty:"مفيش مناديب للمنطقة دي", listShowing:"معروض",
     editName:"تعديل الاسم", editSave:"حفظ", editNameInvalid:"الاسم مينفعش يبقى فاضي ولا فيه . # $ [ ] /",
     editNameExists:"الاسم ده موجود بالفعل — أدمج المناطق دي فيه؟",
+    liveResultsAll:"كل النتائج اللي فيها", liveResultsFor:"لـ",
   }
 };
 let lang = 'en';
@@ -1449,6 +1455,50 @@ function doSearch(query, onSpeechDone){
 }
 document.getElementById('searchBtn').addEventListener('click', ()=> doSearch(document.getElementById('searchInput').value));
 document.getElementById('searchInput').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(e.target.value); });
+
+// ---- live "all matches" list (browse mode) ----
+// This is deliberately separate from doSearch's strict/confident matching —
+// doSearch answers "who is responsible here" with one trustworthy name (or
+// "unknown"); this instead answers "show me everything with 'رحاب' in it" so
+// three couriers each holding a differently-worded Rehab zone all show up
+// together, letting the person pick the one they actually meant.
+const LIVE_RESULTS_MIN_LEN = 2, LIVE_RESULTS_DEBOUNCE_MS = 90, LIVE_RESULTS_LIMIT = 30;
+let liveResultsTimer = null;
+function renderLiveResults(raw){
+  const wrap = document.getElementById('liveResultsWrap');
+  const list = document.getElementById('liveResultsList');
+  const label = document.getElementById('liveResultsLabel');
+  const q = normalize(expandColloquialNumbers(raw||''));
+  if(q.length < LIVE_RESULTS_MIN_LEN){ wrap.style.display='none'; list.innerHTML=''; return; }
+  const regionFilterEl = document.getElementById('regionFilterSelect');
+  const regionFilter = regionFilterEl ? regionFilterEl.value : '';
+  const byCourier = new Map();
+  getZoneIndex().forEach(({courier, zone, normZone})=>{
+    if(!normZone.includes(q)) return;
+    if(regionFilter && !zoneBelongsToRegion(zone, regionFilter)) return;
+    if(!byCourier.has(courier)) byCourier.set(courier, []);
+    byCourier.get(courier).push(zone);
+  });
+  if(!byCourier.size){ wrap.style.display='none'; list.innerHTML=''; return; }
+  const rows = Array.from(byCourier.entries()).slice(0, LIVE_RESULTS_LIMIT);
+  label.textContent = `${t('liveResultsAll')} "${raw.trim()}" (${byCourier.size})`;
+  list.innerHTML = rows.map(([courier, zones])=>`
+    <div class="courier-card" style="padding:10px 14px;">
+      <div class="courier-name" style="margin-bottom:4px;"><span>${courier}</span></div>
+      <div>${zones.map(z=>`<span class="zonepill live-result-pill" data-zone="${z.replace(/"/g,'&quot;')}" style="cursor:pointer;">${z}</span>`).join('')}</div>
+    </div>`).join('');
+  list.querySelectorAll('.live-result-pill').forEach(p=> p.onclick = ()=>{
+    document.getElementById('searchInput').value = p.dataset.zone;
+    doSearch(p.dataset.zone);
+  });
+  wrap.style.display = '';
+}
+document.getElementById('searchInput').addEventListener('input', e=>{
+  clearTimeout(liveResultsTimer);
+  const val = e.target.value;
+  liveResultsTimer = setTimeout(()=> renderLiveResults(val), LIVE_RESULTS_DEBOUNCE_MS);
+});
+document.getElementById('regionFilterSelect').addEventListener('change', ()=> renderLiveResults(document.getElementById('searchInput').value));
 
 // ---- Field Mode toggle (persisted per device) ----
 let fieldMode = false;
