@@ -185,6 +185,10 @@
       </div>
       <div class="status" id="searchStatus"></div>
       <div class="hint" id="voiceInfo"></div>
+      <div class="row" style="align-items:center;gap:8px;margin-top:6px;">
+        <div class="hint" id="audioInputInfo" style="flex:1;"></div>
+        <button class="btn btn-outline" id="retryBtMicBtn" style="flex:0 0 auto;padding:6px 12px;font-size:12px;" data-i18n="retryBtMic">Reconnect headset mic</button>
+      </div>
     </div>
     <div class="card" style="text-align:center;">
       <div class="label" style="margin-bottom:10px;" data-i18n="continuousLabel">Continuous mode — tap once, keep asking hands-free</div>
@@ -391,6 +395,10 @@ const translations = {
     listRegionLabel:"Show only one region (optional)", listRegionNone:"Not linked to any region",
     listRegionEmpty:"No couriers found for this region", listShowing:"Showing",
     listSearchEmpty:"No couriers match this search",
+    retryBtMic:"Reconnect headset mic", audioInputChecking:"Checking audio input…",
+    audioInputBt:"🎧 Using: {name}", audioInputBuiltin:"📱 Using the phone's built-in mic (no headset mic detected)",
+    audioInputUnknown:"Audio input: {name}", audioInputNone:"No microphone detected",
+    audioInputHelp:"If your headset's mic still isn't picked up: open your phone's Bluetooth settings (or make a quick phone call and hang up) so the OS switches the headset to call/voice mode — a website can't force that switch itself, only the OS can.",
     editName:"Edit name", editSave:"Save", editNameInvalid:"Name can't be empty or contain . # $ [ ] /",
     editNameExists:"That name already exists — merge these zones into it?",
     liveResultsAll:"All matches for", liveResultsFor:"for",
@@ -431,6 +439,10 @@ const translations = {
     listRegionLabel:"عرض منطقة معينة بس (اختياري)", listRegionNone:"مش مربوطة بأي منطقة",
     listRegionEmpty:"مفيش مناديب للمنطقة دي", listShowing:"معروض",
     listSearchEmpty:"مفيش نتايج مطابقة للبحث ده",
+    retryBtMic:"أعد الاتصال بمايك السماعة", audioInputChecking:"بيتأكد من مصدر الصوت...",
+    audioInputBt:"🎧 شغال دلوقتي على: {name}", audioInputBuiltin:"📱 شغال على مايك الموبايل (مافيش مايك سماعة متسجل)",
+    audioInputUnknown:"مصدر الصوت: {name}", audioInputNone:"مفيش مايك متسجل",
+    audioInputHelp:"لو مايك السماعة لسه مش شغال: افتح إعدادات البلوتوث في الموبايل، أو اعمل مكالمة سريعة وقفلها — عشان النظام يحوّل السماعة لوضع المكالمات/الصوت. الموقع نفسه مش قادر يجبر التحويل ده، ده بيتحكم فيه النظام بس.",
     editName:"تعديل الاسم", editSave:"حفظ", editNameInvalid:"الاسم مينفعش يبقى فاضي ولا فيه . # $ [ ] /",
     editNameExists:"الاسم ده موجود بالفعل — أدمج المناطق دي فيه؟",
     liveResultsAll:"كل النتائج اللي فيها", liveResultsFor:"لـ",
@@ -1821,12 +1833,66 @@ function makeLowLatencyCommitter(onCommit, canCommitInterim){
     }
   };
 }
+// ---------- Bluetooth headset mic ----------
+// Hard platform limit, stated plainly: the Web Speech API's SpeechRecognition
+// has NO way to choose a microphone — it always captures from whatever the
+// OS currently treats as the active voice input, and there is no `deviceId`
+// option like getUserMedia has. A Bluetooth headset's mic only becomes that
+// active input once the OS has switched the connection to its voice/call
+// profile (HFP) — plain media playback (A2DP) doesn't carry a mic channel at
+// all, and a website cannot force that OS-level switch by itself.
+// What we CAN do: briefly opening a normal getUserMedia() audio session is a
+// known nudge that, on many Android/Chrome combinations, prompts the OS to
+// route audio to a connected Bluetooth headset's voice profile if one is
+// available — and once that routing has switched, SpeechRecognition (which
+// shares the same OS-level input) picks it up too. This is best-effort, not
+// guaranteed on every device — hence the visible status line + manual retry
+// button below, rather than silently assuming it worked.
+let micRoutingWarmed = false;
+async function warmUpMicRouting(force){
+  if(micRoutingWarmed && !force){ updateAudioInputInfo(); return; }
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ updateAudioInputInfo(); return; }
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Hold it a beat — stopping instantly can be faster than the OS finishing
+    // the route switch.
+    await new Promise(r=> setTimeout(r, 250));
+    stream.getTracks().forEach(tr=> tr.stop());
+    micRoutingWarmed = true;
+  }catch(e){ /* permission denied or no mic — SpeechRecognition will surface its own error when it starts */ }
+  await updateAudioInputInfo();
+}
+async function updateAudioInputInfo(){
+  const el = document.getElementById('audioInputInfo');
+  if(!el || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  try{
+    const inputs = (await navigator.mediaDevices.enumerateDevices()).filter(d=> d.kind==='audioinput');
+    if(!inputs.length){ el.textContent = t('audioInputNone'); return; }
+    // Labels are only populated once mic permission has been granted (which
+    // warmUpMicRouting() just did). We can't know for certain which one
+    // SpeechRecognition itself will use — only show what the OS exposes to
+    // the browser at all; a headset that never appears here is itself a
+    // useful signal (the OS isn't offering its mic to Chrome yet).
+    const btLike = inputs.find(d=> /bluetooth|headset|hands.?free|\bbt\b/i.test(d.label));
+    if(btLike) el.textContent = t('audioInputBt').replace('{name}', btLike.label || 'Bluetooth');
+    else if(inputs.some(d=>d.label)) el.textContent = t('audioInputBuiltin');
+    else el.textContent = ''; // no permission yet — nothing useful to show
+  }catch(e){}
+}
+document.getElementById('retryBtMicBtn').addEventListener('click', async ()=>{
+  document.getElementById('audioInputInfo').textContent = t('audioInputChecking');
+  await warmUpMicRouting(true);
+  alert(t('audioInputHelp'));
+});
+try{ navigator.mediaDevices && navigator.mediaDevices.addEventListener('devicechange', updateAudioInputInfo); }catch(e){}
+
 function wireMic(btnId, targetInputId, onResult, forceLang, lowLatency){
   const btn = document.getElementById(btnId);
   if(!SpeechRec){ btn.style.display='none'; return; }
   let rec=null, listening=false;
-  btn.addEventListener('click', ()=>{
+  btn.addEventListener('click', async ()=>{
     if(listening){ rec && rec.stop(); return; }
+    await warmUpMicRouting();
     rec = new SpeechRec();
     rec.lang = forceLang || (lang==='ar' ? 'ar-EG' : 'en-US');
     rec.interimResults = !!lowLatency; rec.maxAlternatives = lowLatency ? STT_ALTERNATIVES : 1;
@@ -1975,11 +2041,12 @@ function stopContinuous(){
   cancelSpeaking();
   releaseWakeLock();
 }
-contBtn.addEventListener('click', ()=>{
+contBtn.addEventListener('click', async ()=>{
   continuousActive = !continuousActive;
   if(continuousActive){
     contBtn.querySelector('span').textContent = t('continuousStop');
     contBtn.classList.remove('btn-outline'); contBtn.classList.add('btn-danger');
+    await warmUpMicRouting();
     startContinuousCycle();
     requestWakeLock();
   } else { stopContinuous(); }
