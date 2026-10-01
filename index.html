@@ -1849,23 +1849,23 @@ function makeLowLatencyCommitter(onCommit, canCommitInterim){
 // guaranteed on every device — hence the visible status line + manual retry
 // button below, rather than silently assuming it worked.
 let micRoutingWarmed = false;
-let micKeepAliveStream = null; // held open for the whole listening session — see note above
 async function warmUpMicRouting(force){
-  if(micRoutingWarmed && !force && micKeepAliveStream){ updateAudioInputInfo(); return; }
+  if(micRoutingWarmed && !force){ updateAudioInputInfo(); return; }
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ updateAudioInputInfo(); return; }
-  releaseMicKeepAlive();
   try{
-    micKeepAliveStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    // Give the OS a real head start before we also start SpeechRecognition —
-    // a Bluetooth SCO/HFP link commonly takes 1-2+ seconds to finish
-    // switching, not the ~250ms this used to wait.
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Give the OS a real head start before SpeechRecognition starts its own,
+    // separate capture — a Bluetooth SCO/HFP link commonly takes 1-2+ seconds
+    // to finish switching. IMPORTANT: this stream is released again — NOT
+    // held open — before recognition starts. Holding our own mic session
+    // open indefinitely (a previous version of this) turned out to block
+    // SpeechRecognition's own capture from getting any audio at all on some
+    // devices — total silence, even on the phone's own built-in mic.
     await new Promise(r=> setTimeout(r, 900));
+    stream.getTracks().forEach(tr=> tr.stop());
     micRoutingWarmed = true;
   }catch(e){ /* permission denied or no mic — SpeechRecognition will surface its own error when it starts */ }
   await updateAudioInputInfo();
-}
-function releaseMicKeepAlive(){
-  if(micKeepAliveStream){ try{ micKeepAliveStream.getTracks().forEach(tr=> tr.stop()); }catch(e){} micKeepAliveStream = null; }
 }
 async function updateAudioInputInfo(){
   const el = document.getElementById('audioInputInfo');
