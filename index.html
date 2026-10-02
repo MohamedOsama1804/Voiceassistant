@@ -1705,7 +1705,7 @@ const AZURE_MISS_BUDGET_MS = 1500;
 let currentAzureAudio = null; // the <audio> element currently playing an Azure-voiced answer, if any
 function cancelSpeaking(){
   ttsSeqId++; // invalidates any chunk still waiting on its own setTimeout/onend
-  if(currentAzureAudio){ try{ currentAzureAudio.pause(); }catch(e){} currentAzureAudio = null; }
+  if(currentAzureAudio){ try{ currentAzureAudio._stop = true; currentAzureAudio.pause(); }catch(e){} currentAzureAudio = null; }
   try{ speechSynthesis.cancel(); }catch(e){}
   ttsActive = false;
   logDebugSafe('CANCEL', 'speech cancelled');
@@ -1871,11 +1871,18 @@ function speakAr(text, onDone){
       if(settled) return;
       settled = true;
       if(mySeq !== ttsSeqId) return; // a newer answer or a cancel already happened while we were fetching
-      if(currentAzureAudio){ try{ currentAzureAudio.pause(); }catch(e){} }
+      if(currentAzureAudio){ try{ currentAzureAudio._stop = true; currentAzureAudio.pause(); }catch(e){} }
       const audio = new Audio(url);
       currentAzureAudio = audio;
       audio.onplay = ()=>{ if(mySeq===ttsSeqId) ttsActive = true; };
       audio.onended = finish; audio.onerror = finish;
+      // The OS can pause media for a moment when the mic session restarts (audio focus). If that
+      // pause wasn't ours (cancel / newer answer), resume instead of leaving a chopped answer.
+      audio.onpause = ()=>{
+        if(audio._stop || audio.ended || mySeq !== ttsSeqId) return;
+        logDebugSafe('AUDIO', 'paused by system — resuming');
+        audio.play().catch(()=>{});
+      };
       await audio.play();
     }catch(e){
       clearTimeout(budget);
@@ -1973,16 +1980,36 @@ function interimCommitDelay(t){
   }catch(e){}
   return false;
 }
+// "Which courier(s) would this phrase resolve to?" — used to tell a harmless spelling refinement
+// of an already-answered phrase (don't re-speak, don't cut the audio) from a real correction.
+function answerKey(t){
+  try{
+    const x = expandColloquialNumbers(t);
+    let ms = findCouriersForZone(x);
+    if(!ms.length){ const h = findRegionForSubArea(normalize(x)); if(h) ms = findCouriersForZone(h.region); }
+    const k = Array.from(new Set(ms.map(m=>m.courier))).sort().join('|');
+    return k || ('none:' + normalize(x));
+  }catch(e){ return normalize(t); }
+}
+function textSimilarity(a, b){
+  if(!a || !b) return 0;
+  const m = Math.max(a.length, b.length);
+  return m ? 1 - editDistance(a, b) / m : 1;
+}
 function makeLowLatencyCommitter(onCommit, canCommitInterim){
-  let timer = null, committedIndex = -1, committedText = '';
+  let timer = null, committedIndex = -1, committedText = '', committedRaw = '';
   return {
+    // what we've already answered for the current utterance (index + normalized text)
+    last(){ return { index: committedIndex, text: committedText }; },
     onInterim(index, transcript){
       clearTimeout(timer);
+      // already answered this very utterance and the refined guess means the same thing -> don't answer twice
+      if(index===committedIndex && committedRaw && answerKey(committedRaw) === answerKey(transcript)) return;
       let delay = canCommitInterim ? canCommitInterim(transcript) : LOW_LATENCY_DEBOUNCE_MS;
       if(delay === true) delay = LOW_LATENCY_DEBOUNCE_MS;
       if(!delay) return;                       // not sure yet — wait for the authoritative final
       timer = setTimeout(()=>{
-        committedIndex = index; committedText = normalize(transcript);
+        committedIndex = index; committedText = normalize(transcript); committedRaw = transcript;
         logDebugSafe('COMMIT', `interim after ${delay}ms: "${transcript}"`);
         onCommit(transcript);
       }, delay);
@@ -1991,7 +2018,14 @@ function makeLowLatencyCommitter(onCommit, canCommitInterim){
       clearTimeout(timer);
       const norm = normalize(transcript);
       if(index===committedIndex && norm===committedText) return; // already answered via the interim commit, nothing changed
-      committedIndex = index; committedText = norm;
+      // Same utterance, only the spelling/wording was refined and it resolves to the SAME answer:
+      // leave the audio that is already playing alone instead of cutting it and starting over.
+      if(index===committedIndex && committedRaw && answerKey(committedRaw) === answerKey(transcript)){
+        committedText = norm; committedRaw = transcript;
+        logDebugSafe('COMMIT', `final "${transcript}" — same answer, not re-spoken`);
+        return;
+      }
+      committedIndex = index; committedText = norm; committedRaw = transcript;
       logDebugSafe('COMMIT', `final: "${transcript}"`);
       onCommit(transcript);
     }
@@ -2179,6 +2213,11 @@ function startContinuousCycle(){
           // Barge-in: something that isn't our own echo is coming in WHILE
           // we're talking — cut the current answer off now, don't wait for
           // the full phrase to finish transcribing.
+          // The person's own question keeps being refined by the recognizer for a moment after we
+          // answered on an early guess — that is NOT a new interruption, so never cut the answer for it.
+          const lastC = committer.last();
+          const sameUtterance = lastC.index === i && lastC.text && (textSimilarity(heard, lastC.text) >= 0.75 || lastC.text.startsWith(heard) || heard === lastC.text);
+          if(sameUtterance){ logDebugSafe('interim', `refinement of answered phrase "${heard}" — ignored`); continue; }
           if(!echo && !bargeInFired){ bargeInFired = true; logDebugSafe('BARGE-IN', `triggered by "${heard}"`); cancelSpeaking(); }
         } else {
           committer.onInterim(i, resolveBestTranscript(res));
@@ -2197,7 +2236,7 @@ function startContinuousCycle(){
   };
   continuousRec.onend=()=>{
     lastRecEventAt = Date.now();
-    logDebugSafe('REC', 'ended, restarting');
+    logDebugSafe('REC', `ended, restarting (ttsActive=${ttsActive})`);
     if(continuousActive){ try{ startContinuousCycle(); }catch(e){ stopContinuous(); } }
   };
   try{ continuousRec.start(); }catch(e){}
@@ -2250,7 +2289,7 @@ document.addEventListener('visibilitychange', ()=>{
 });
 setInterval(()=>{
   if(!continuousActive || ttsActive) return;
-  if(Date.now() - lastRecEventAt > 8000){
+  if(Date.now() - lastRecEventAt > 25000){   // was 8s: restarted the mic during ordinary silence
     try{ continuousRec && continuousRec.stop(); }catch(e){}
     startContinuousCycle();
   }
