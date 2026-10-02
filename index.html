@@ -1844,16 +1844,16 @@ function resolveBestTranscript(res){
 // made answers take seconds. A wrong early answer is corrected automatically by the final
 // (and an in-progress answer is cut off the moment the person keeps talking).
 //   tier 1 (130ms): exact name that can't be the start of a longer one
-//   tier 2 (350ms): exact zone/alias/number-range hit (incl. a name that prefixes a longer one)
-//   tier 3 (600ms): any match that resolves to ONE courier (STT spelling drift, partial names)
+//   tier 2 (250ms): exact zone/alias/number-range hit (incl. a name that prefixes a longer one)
+//   tier 3 (450ms): any match that resolves to ONE courier (STT spelling drift, partial names)
 function interimCommitDelay(t){
   if(isConfidentMatch(t, false)) return LOW_LATENCY_DEBOUNCE_MS;
-  if(isConfidentMatch(t, true)) return 350;
+  if(isConfidentMatch(t, true)) return 250;
   try{
     const x = expandColloquialNumbers(t);
     let ms = findCouriersForZone(x);
     if(!ms.length){ const hit = findRegionForSubArea(normalize(x)); if(hit) ms = findCouriersForZone(hit.region); }
-    if(new Set(ms.map(m=>m.courier)).size === 1) return 600;
+    if(new Set(ms.map(m=>m.courier)).size === 1) return 450;
   }catch(e){}
   return false;
 }
@@ -2054,8 +2054,24 @@ function looksLikeEcho(heard, spoken){
   return maxLen>0 && (1 - dist/maxLen) >= 0.6;
 }
 
+// ---- recognizer lifecycle: ONE live instance, restarts with back-off ----
+// Bug found in the live log: when the recognizer failed ("network" / "not-allowed") every onend
+// restarted it immediately, which failed again within milliseconds — a ~100-restarts-per-second loop
+// (the mic icon flickering, nothing actually being heard). The watchdog and the visibility handler
+// also stopped AND started it separately, so several instances could be alive at once.
+let restartTimer = null, lastRecError = null, lastRecStartAt = 0, netFailStreak = 0, deniedStreak = 0;
+function killContinuousRec(){
+  clearTimeout(restartTimer); restartTimer = null;
+  const old = continuousRec; continuousRec = null;
+  if(old){ old.onresult = old.onend = old.onerror = old.onstart = null; try{ old.abort(); }catch(e){ try{ old.stop(); }catch(_){} } }
+}
+function restartContinuous(delay){
+  killContinuousRec();
+  restartTimer = setTimeout(()=>{ restartTimer = null; if(continuousActive) startContinuousCycle(); }, delay||0);
+}
 function startContinuousCycle(){
   if(!continuousActive || !SpeechRec) return;
+  killContinuousRec();   // never two live recognizers
   lastResultIndex=0; bargeInFired=false; lastRecEventAt=Date.now();
   // See "low-latency commit" above — cuts the typical post-speech wait
   // roughly in half or more by not waiting for the browser's own isFinal.
@@ -2065,12 +2081,14 @@ function startContinuousCycle(){
     document.getElementById('searchInput').value = transcript;
     doSearch(transcript);
   }, interimCommitDelay);
-  continuousRec = new SpeechRec();
+  const myRec = new SpeechRec(); continuousRec = myRec; lastRecError = null;
   continuousRec.lang = 'ar-EG'; // search voice is always Arabic
   continuousRec.continuous = true; continuousRec.interimResults=true; continuousRec.maxAlternatives=STT_ALTERNATIVES;
-  continuousRec.onstart=()=>{ contStatus.textContent='...'; lastRecEventAt=Date.now(); logDebugSafe('REC', 'started'); };
-  continuousRec.onerror=(e)=>{ contStatus.textContent = e.error; lastRecEventAt=Date.now(); logDebugSafe('REC', `error: ${e.error} (ttsActive=${ttsActive})`); };
+  continuousRec.onstart=()=>{ if(continuousRec!==myRec) return; contStatus.textContent='...'; lastRecEventAt=Date.now(); lastRecStartAt=Date.now(); lastRecError=null; logDebugSafe('REC', 'started'); };
+  continuousRec.onerror=(e)=>{ if(continuousRec!==myRec) return; lastRecError = e.error; contStatus.textContent = e.error; lastRecEventAt=Date.now(); logDebugSafe('REC', `error: ${e.error} (ttsActive=${ttsActive})`); };
   continuousRec.onresult=(ev)=>{
+    if(continuousRec!==myRec) return;
+    netFailStreak = 0; deniedStreak = 0;
     lastRecEventAt = Date.now();
     // ev.resultIndex, not "everything after the last one seen": a result is
     // updated in place (partial → refined → final) under the same index, and
@@ -2112,23 +2130,44 @@ function startContinuousCycle(){
     }
   };
   continuousRec.onend=()=>{
+    if(continuousRec!==myRec) return;
     lastRecEventAt = Date.now();
-    logDebugSafe('REC', `ended, restarting (ttsActive=${ttsActive})`);
-    if(continuousActive){ try{ startContinuousCycle(); }catch(e){ stopContinuous(); } }
+    let delay = 0;
+    const lived = Date.now() - lastRecStartAt;
+    if(lastRecError === 'not-allowed' || lastRecError === 'service-not-allowed'){
+      deniedStreak++;
+      if(deniedStreak >= 4){
+        logDebugSafe('REC', 'mic permission refused repeatedly — stopping instead of looping');
+        stopContinuous();
+        contStatus.textContent = 'الميك مش مسموح — اسمح بالميكروفون من إعدادات المتصفح وابدأ تاني';
+        return;
+      }
+      delay = 400 * deniedStreak;
+    } else if(lastRecError === 'network'){
+      netFailStreak++;
+      delay = Math.min(5000, 300 * Math.pow(2, netFailStreak));   // 0.6s, 1.2s, 2.4s ... max 5s
+      contStatus.textContent = 'مفيش اتصال بخدمة الصوت — بحاول تاني...';
+    } else {
+      if(lived > 3000){ netFailStreak = 0; deniedStreak = 0; }
+      if(lived < 300) delay = 300;                                  // ended instantly: don't spin
+    }
+    logDebugSafe('REC', `ended, restarting in ${delay}ms (ttsActive=${ttsActive}, err=${lastRecError})`);
+    restartContinuous(delay);
   };
-  try{ continuousRec.start(); }catch(e){}
+  try{ continuousRec.start(); }catch(e){ logDebugSafe('REC', 'start() threw: '+e.message); restartContinuous(500); }
 }
 function stopContinuous(){
   continuousActive=false;
   contBtn.querySelector('span').textContent = t('continuousStart');
   contBtn.classList.remove('btn-danger'); contBtn.classList.add('btn-outline');
-  if(continuousRec){ try{ continuousRec.stop(); }catch(e){} }
+  killContinuousRec();
   cancelSpeaking();
   releaseWakeLock();
 }
 contBtn.addEventListener('click', async ()=>{
   continuousActive = !continuousActive;
   if(continuousActive){
+    netFailStreak = 0; deniedStreak = 0; lastRecError = null;
     contBtn.querySelector('span').textContent = t('continuousStop');
     contBtn.classList.remove('btn-outline'); contBtn.classList.add('btn-danger');
     await warmUpMicRouting();
@@ -2159,16 +2198,14 @@ document.addEventListener('visibilitychange', ()=>{
   // recognizer needs restarting, and when the wake lock (released by the
   // OS while hidden) needs re-requesting.
   if(document.visibilityState==='visible' && continuousActive){
-    try{ continuousRec && continuousRec.stop(); }catch(e){}
-    setTimeout(()=>{ if(continuousActive) startContinuousCycle(); }, 200);
+    restartContinuous(200);
     requestWakeLock();
   }
 });
 setInterval(()=>{
   if(!continuousActive || ttsActive) return;
   if(Date.now() - lastRecEventAt > 25000){   // was 8s: restarted the mic during ordinary silence
-    try{ continuousRec && continuousRec.stop(); }catch(e){}
-    startContinuousCycle();
+    restartContinuous(0);
   }
 }, 4000);
 
