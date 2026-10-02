@@ -185,6 +185,23 @@
       </div>
       <div class="status" id="searchStatus"></div>
       <div class="hint" id="voiceInfo"></div>
+      <details id="azureBox" style="margin-top:6px;">
+        <summary style="font-size:12px;color:var(--muted);cursor:pointer;text-align:center;">⚙️ إعدادات الصوت المصري (Azure)</summary>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;">
+          <input type="password" id="azKey1" placeholder="Azure Key 1" autocomplete="off" style="direction:ltr;">
+          <input type="password" id="azKey2" placeholder="Azure Key 2 (احتياطي)" autocomplete="off" style="direction:ltr;">
+          <input type="text" id="azRegion" placeholder="Region" value="swedencentral" autocomplete="off" style="direction:ltr;">
+          <select id="azVoice">
+            <option value="ar-EG-SalmaNeural">سلمى — ست مصرية</option>
+            <option value="ar-EG-ShakirNeural">شاكر — راجل مصري</option>
+          </select>
+          <div class="row" style="gap:8px;">
+            <button class="btn btn-outline" id="azSaveBtn" style="flex:1;padding:8px;font-size:13px;">حفظ</button>
+            <button class="btn btn-outline" id="azTestBtn" style="flex:1;padding:8px;font-size:13px;">جرّب الصوت</button>
+          </div>
+          <div class="hint" id="azStatus"></div>
+        </div>
+      </details>
       <div class="row" style="align-items:center;gap:8px;margin-top:6px;">
         <div class="hint" id="audioInputInfo" style="flex:1;"></div>
         <button class="btn btn-outline" id="retryBtMicBtn" style="flex:0 0 auto;padding:6px 12px;font-size:12px;" data-i18n="retryBtMic">Reconnect headset mic</button>
@@ -1655,6 +1672,81 @@ function speak(text){
 // Egyptian colloquial Arabic regardless of the UI language toggle.
 // Cache the best available Arabic voice once the browser reports its voice list
 // (on Android this can arrive asynchronously via onvoiceschanged).
+// ---------- Azure Neural TTS (Egyptian voice) ----------
+// Keys live only in this device's localStorage (entered once from the settings box
+// under the search box) — never hardcoded in this file. If Azure is unreachable or
+// not configured, speakAr() falls back to the browser's own voice automatically.
+const AZ_STORE = 'azure-tts-cfg';
+let azCfg = { key1:'', key2:'', region:'swedencentral', voice:'ar-EG-SalmaNeural' };
+try{ Object.assign(azCfg, JSON.parse(localStorage.getItem(AZ_STORE) || '{}')); }catch(e){}
+const azCache = new Map();      // text -> mp3 Blob (repeat answers play instantly)
+let azAudio = null, azAbort = null, azFailUntil = 0;
+function azReady(){ return !!((azCfg.key1 || azCfg.key2) && azCfg.region); }
+function azXmlEsc(x){ return String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;'); }
+async function azFetch(text, signal){
+  const hit = azCache.get(text);
+  if(hit) return hit;
+  const ssml = `<speak version='1.0' xml:lang='ar-EG'><voice xml:lang='ar-EG' name='${azCfg.voice}'>${azXmlEsc(text)}</voice></speak>`;
+  const url = `https://${azCfg.region.trim()}.tts.speech.microsoft.com/cognitiveservices/v1`;
+  let lastErr = new Error('no key');
+  for(const key of [azCfg.key1, azCfg.key2].filter(Boolean)){
+    try{
+      const res = await fetch(url, {
+        method:'POST', signal,
+        headers:{ 'Ocp-Apim-Subscription-Key': key.trim(), 'Content-Type':'application/ssml+xml',
+                  'X-Microsoft-OutputFormat':'audio-24khz-48kbitrate-mono-mp3' },
+        body: ssml
+      });
+      if(res.ok){
+        const blob = await res.blob();
+        if(azCache.size >= 150) azCache.delete(azCache.keys().next().value);
+        azCache.set(text, blob);
+        return blob;
+      }
+      lastErr = new Error('HTTP ' + res.status);
+      // wrong/expired/throttled key -> try key 2; anything else -> give up
+      if(![401,403,429].includes(res.status)) break;
+    }catch(e){
+      if(e && e.name === 'AbortError') throw e;
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+}
+function azStop(){
+  if(azAbort){ try{ azAbort.abort(); }catch(e){} azAbort = null; }
+  if(azAudio){ try{ azAudio.pause(); }catch(e){} }
+}
+async function azSpeak(text, mySeq, onDone){
+  const ctl = new AbortController(); azAbort = ctl;
+  const blob = await azFetch(text, ctl.signal);
+  if(mySeq !== ttsSeqId) return 'superseded';
+  if(!azAudio) azAudio = new Audio();   // one shared element — keeps mobile autoplay permission
+  const objUrl = URL.createObjectURL(blob);
+  try{
+    await new Promise((resolve, reject)=>{
+      azAudio.onplaying = ()=>{ if(mySeq === ttsSeqId) ttsActive = true; };
+      azAudio.onended = resolve;
+      azAudio.onpause = resolve;        // cancel (barge-in / newer answer) lands here
+      azAudio.onerror = ()=> reject(new Error('audio error'));
+      azAudio.src = objUrl;
+      const pr = azAudio.play();
+      if(pr && pr.catch) pr.catch(reject);
+    });
+  } finally { try{ URL.revokeObjectURL(objUrl); }catch(e){} }
+  if(mySeq !== ttsSeqId) return 'superseded';
+  speakFinished(mySeq, onDone);
+  return 'done';
+}
+function speakFinished(mySeq, onDone){
+  if(mySeq !== ttsSeqId) return;
+  logDebugSafe('SPEAK', `done (seq ${mySeq})`);
+  clearTimeout(ttsGraceTimer);
+  // Short grace period — mobile audio hardware/STT can lag a beat behind
+  // the moment playback actually stops.
+  ttsGraceTimer = setTimeout(()=>{ if(mySeq===ttsSeqId) ttsActive=false; }, 400);
+  if(onDone) onDone();
+}
 let bestArabicVoice = null;
 function pickBestArabicVoice(){
   if(!('speechSynthesis' in window)) return null;
@@ -1671,6 +1763,13 @@ if('speechSynthesis' in window){
 function updateVoiceInfo(){
   const el = document.getElementById('voiceInfo');
   if(!el) return;
+  if(azReady()){
+    const nm = azCfg.voice==='ar-EG-ShakirNeural' ? 'شاكر' : 'سلمى';
+    el.textContent = Date.now() < azFailUntil
+      ? '🔊 Azure مش متاح دلوقتي — شغّال بصوت الجهاز مؤقتاً'
+      : `🔊 صوت مصري (Azure): ${nm}`;
+    return;
+  }
   if(bestArabicVoice){
     const isEgyptian = /^ar[-_]eg/i.test(bestArabicVoice.lang);
     el.textContent = isEgyptian
@@ -1700,6 +1799,7 @@ updateVoiceInfo();
 let ttsActive = false, lastSpokenNormalized = '', ttsGraceTimer = null, ttsSeqId = 0;
 function cancelSpeaking(){
   ttsSeqId++; // invalidates any chunk still waiting on its own setTimeout/onend
+  azStop();
   try{ speechSynthesis.cancel(); }catch(e){}
   ttsActive = false;
   logDebugSafe('CANCEL', 'speech cancelled');
@@ -1723,30 +1823,62 @@ function logDebug(tag, msg){
   contDebugLog.scrollTop = contDebugLog.scrollHeight;
 }
 function speakAr(text, onDone){
+  const mySeq = ++ttsSeqId;
+  lastSpokenNormalized = normalize(text);
+  logDebugSafe('SPEAK', `"${text}" (seq ${mySeq})`);
+  azStop();
+  if(azReady() && Date.now() >= azFailUntil){
+    azSpeak(text, mySeq, onDone).catch((err)=>{
+      if(mySeq !== ttsSeqId) return;           // a newer answer already took over
+      logDebugSafe('AZURE', 'failed: ' + (err && err.message));
+      azFailUntil = Date.now() + 30000;        // don't make every answer wait on a dead connection
+      updateVoiceInfo();
+      speakBrowser(text, mySeq, onDone);
+    });
+    return;
+  }
+  speakBrowser(text, mySeq, onDone);
+}
+function speakBrowser(text, mySeq, onDone){
   try{
     if(!('speechSynthesis' in window)){ if(onDone) onDone(); return; }
-    const mySeq = ++ttsSeqId;
-    lastSpokenNormalized = normalize(text);
-    logDebugSafe('SPEAK', `"${text}" (seq ${mySeq})`);
     const u = new SpeechSynthesisUtterance(text);
     if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; }
     else { u.lang = 'ar-SA'; }
     u.rate = 1; u.pitch = 1; u.volume = 1; // explicit, standard — never left to an inherited default
     u.onstart = ()=>{ if(mySeq===ttsSeqId) ttsActive = true; };
-    const finish = ()=>{
-      if(mySeq !== ttsSeqId) return; // superseded by a newer answer or a barge-in cancel
-      logDebugSafe('SPEAK', `done (seq ${mySeq})`);
-      clearTimeout(ttsGraceTimer);
-      // Short grace period — mobile audio hardware/STT can lag a beat behind
-      // the moment playback actually stops.
-      ttsGraceTimer = setTimeout(()=>{ if(mySeq===ttsSeqId) ttsActive=false; }, 400);
-      if(onDone) onDone();
-    };
-    u.onend = finish; u.onerror = finish;
+    u.onend = ()=> speakFinished(mySeq, onDone);
+    u.onerror = ()=> speakFinished(mySeq, onDone);
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
   }catch(e){ if(onDone) onDone(); }
 }
+// ---- Azure settings box wiring ----
+(function(){
+  const k1=document.getElementById('azKey1'), k2=document.getElementById('azKey2'),
+        rg=document.getElementById('azRegion'), vc=document.getElementById('azVoice'),
+        st=document.getElementById('azStatus');
+  k1.value=azCfg.key1||''; k2.value=azCfg.key2||''; rg.value=azCfg.region||'swedencentral'; vc.value=azCfg.voice;
+  function save(){
+    azCfg = { key1:k1.value.trim(), key2:k2.value.trim(), region:(rg.value.trim()||'swedencentral'), voice:vc.value };
+    try{ localStorage.setItem(AZ_STORE, JSON.stringify(azCfg)); }catch(e){}
+    azCache.clear(); azFailUntil = 0; updateVoiceInfo();
+  }
+  document.getElementById('azSaveBtn').addEventListener('click', ()=>{ save(); st.textContent = azReady() ? '✅ اتحفظ' : 'الصوت هيفضل صوت الجهاز لحد ما تدخل Key'; });
+  document.getElementById('azTestBtn').addEventListener('click', async ()=>{
+    save();
+    if(!azReady()){ st.textContent = '⚠ دخّل Key الأول'; return; }
+    st.textContent = '… بجرّب';
+    try{
+      const ctl = new AbortController();
+      await azFetch('أهلاً، دا صوت مصري من أزور', ctl.signal);
+      st.textContent = '✅ الاتصال شغال';
+      speakAr('أهلاً، دا صوت مصري من أزور');
+    }catch(err){
+      st.textContent = '⚠ فشل: ' + (err && err.message) + ' — راجع الـKey والـRegion';
+    }
+  });
+})();
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 // ---------- low-latency commit (speed request) ----------
 // The browser's SpeechRecognition only marks a result `isFinal` after it

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'courier-directory-v4';
+const CACHE_NAME = 'courier-directory-v5';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './xlsx.full.min.js'];
 
 self.addEventListener('install', (event) => {
@@ -14,6 +14,8 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Don't touch Azure TTS (cross-origin POST) or any non-GET request — Cache API can't store them.
+  if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
   // Network-first: always try to get the latest version from the server first.
   // Only fall back to the cached copy if there's no internet connection.
   // (Old version used cache-first, which kept showing stale code after updates
