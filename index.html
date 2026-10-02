@@ -117,6 +117,7 @@
   .switch[aria-checked="true"] .knob{transform:translateX(18px);background:#fff;}
   [dir="rtl"] .switch[aria-checked="true"] .knob{transform:translateX(-18px);}
 </style>
+<link rel="preconnect" href="https://swedencentral.tts.speech.microsoft.com" crossorigin>
 </head>
 <body>
 <div class="wrap">
@@ -668,12 +669,14 @@ dataRef.on('value', snap=>{
   dataReady = true;
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }catch(e){}
   renderAll();
+  try{ azureScheduleWarmup(); }catch(e){}
 });
 aliasesRef.on('value', snap=>{
   aliases = snap.val() || {};
   aliasesReady = true;
   try{ localStorage.setItem(ALIASES_KEY, JSON.stringify(aliases)); }catch(e){}
   renderAll();
+  try{ azureScheduleWarmup(); }catch(e){}
 });
 
 async function saveData(){ zoneIndexCache = null; try{ await dataRef.set(data); return true; }catch(e){ alert('Save failed — are you signed in?'); return false; } }
@@ -1677,7 +1680,7 @@ function updateVoiceInfo(){
       ? `🔊 صوت مصري متاح: ${bestArabicVoice.name}`
       : `🔊 صوت متاح: ${bestArabicVoice.name} (${bestArabicVoice.lang}) — مش مصري لسه`;
   } else {
-    el.textContent = '🔊 لسه مفيش صوت عربي اتحمّل';
+    el.textContent = '';
   }
 }
 updateVoiceInfo();
@@ -1698,6 +1701,7 @@ updateVoiceInfo();
 // relies entirely on looksLikeEcho() below and is a lower priority to
 // revisit once TTS itself is confirmed solid again.
 let ttsActive = false, lastSpokenNormalized = '', ttsGraceTimer = null, ttsSeqId = 0;
+const AZURE_MISS_BUDGET_MS = 1500;
 let currentAzureAudio = null; // the <audio> element currently playing an Azure-voiced answer, if any
 function cancelSpeaking(){
   ttsSeqId++; // invalidates any chunk still waiting on its own setTimeout/onend
@@ -1738,31 +1742,91 @@ const AZURE_TTS_KEY = '7GCsfNxrHqfZ2QaysSqiB9FKJEJHpn52fDfpwXxZu88FLadZWBEeJQQJ9
 const AZURE_TTS_REGION = 'swedencentral';
 // ar-EG-SalmaNeural (female) / ar-EG-ShakirNeural (male) are the two
 // Egyptian Arabic neural voices Azure offers — swap the line below to switch.
-const AZURE_TTS_VOICE = 'ar-EG-SalmaNeural';
+const AZURE_TTS_VOICE = 'ar-EG-ShakirNeural';
 const AZURE_TTS_ENDPOINT = `https://${AZURE_TTS_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`;
 // In-memory only — resets on reload. Repeating the same answer (very common;
 // courier names repeat constantly) plays instantly from here with zero
 // network cost; a brand-new phrase still pays one real network round trip.
 const azureAudioCache = new Map(); // text -> blob: URL
+const AZURE_FORMAT = 'riff-24khz-16bit-mono-pcm'; // raw WAV: starts instantly, no MP3 padding/decode
+const AZURE_CACHE_NAME = 'az-tts-shakir-v1';       // persistent copy: survives app restarts
+const AZURE_WARM_MAX = 1200;                        // cap on phrases pre-generated in the background
 function escapeSsml(s){
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 }
-async function fetchAzureAudioUrl(text){
-  if(azureAudioCache.has(text)) return azureAudioCache.get(text);
+function azureCacheKey(text){ return `https://tts.cache.local/${AZURE_TTS_VOICE}/${AZURE_FORMAT}/${encodeURIComponent(text)}`; }
+async function azureNetworkBlob(text, signal){
   const ssml = `<speak version='1.0' xml:lang='ar-EG'><voice name='${AZURE_TTS_VOICE}'>${escapeSsml(text)}</voice></speak>`;
   const res = await fetch(AZURE_TTS_ENDPOINT, {
-    method: 'POST',
+    method: 'POST', signal,
     headers: {
       'Ocp-Apim-Subscription-Key': AZURE_TTS_KEY,
       'Content-Type': 'application/ssml+xml',
-      'X-Microsoft-OutputFormat': 'audio-24khz-96kbitrate-mono-mp3',
+      'X-Microsoft-OutputFormat': AZURE_FORMAT,
     },
     body: ssml,
   });
-  if(!res.ok) throw new Error(`Azure TTS HTTP ${res.status}`);
-  const url = URL.createObjectURL(await res.blob());
+  if(!res.ok){ const e = new Error(`Azure TTS HTTP ${res.status}`); e.status = res.status; throw e; }
+  return await res.blob();
+}
+async function fetchAzureAudioUrl(text, signal){
+  if(azureAudioCache.has(text)) return azureAudioCache.get(text);          // instant
+  let blob = null;
+  if(typeof caches !== 'undefined'){                                         // ~ms, no network
+    try{ const c = await caches.open(AZURE_CACHE_NAME); const r = await c.match(azureCacheKey(text)); if(r) blob = await r.blob(); }catch(e){}
+  }
+  if(!blob){
+    blob = await azureNetworkBlob(text, signal);
+    if(typeof caches !== 'undefined'){
+      try{ const c = await caches.open(AZURE_CACHE_NAME); await c.put(azureCacheKey(text), new Response(blob.slice(0, blob.size, blob.type), { headers:{ 'Content-Type':'audio/wav' } })); }catch(e){}
+    }
+  }
+  const url = URL.createObjectURL(blob);
   azureAudioCache.set(text, url);
   return url;
+}
+// ---- background pre-generation: once this finishes, every answer plays with ZERO network wait ----
+// Covers every sentence doSearch() can speak: courier names (field mode), the two fixed
+// phrases, "courier، zone" (normal mode) and the alias sentences. Only missing phrases are
+// requested, so after the first run this is nearly free. Names go first.
+let azWarmTimer = null, azWarmRunning = false, azWarmDirty = false;
+function azurePhrases(){
+  const out = ['غير معروف', 'فيه أكتر من مندوب محتمل، حدد المنطقة أكتر'];
+  const names = Object.keys(data || {});
+  names.forEach(n=> out.push(n));
+  try{
+    Object.keys(aliases || {}).forEach(sub=>{
+      const region = aliases[sub];
+      out.push(`${sub} تابعة لمنطقة ${region}`);
+      let ms = []; try{ ms = findCouriersForZone(region) || []; }catch(e){}
+      Array.from(new Set(ms.map(m=>m.courier))).slice(0,1).forEach(c=> out.push(`${sub} تابعة لمنطقة ${region}، تابع مندوب ${c}`));
+    });
+  }catch(e){}
+  names.forEach(n=> (data[n]||[]).forEach(z=> out.push(`${n}، ${z}`)));
+  return Array.from(new Set(out)).slice(0, AZURE_WARM_MAX);
+}
+function azureScheduleWarmup(){ clearTimeout(azWarmTimer); azWarmTimer = setTimeout(azureWarmup, 1500); }
+async function azureWarmup(){
+  if(!AZURE_TTS_KEY || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
+  if(azWarmRunning){ azWarmDirty = true; return; }
+  azWarmRunning = true; azWarmDirty = false;
+  const list = azurePhrases(); let idx = 0, bad = 0;
+  const worker = async ()=>{
+    while(idx < list.length && bad < 6){
+      const text = list[idx++];
+      for(let attempt=0; attempt<3; attempt++){
+        try{ await fetchAzureAudioUrl(text); bad = 0; break; }
+        catch(e){ bad++; await new Promise(r=> setTimeout(r, e && e.status===429 ? 3000 : 1500)); if(bad >= 6) break; }
+      }
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  logDebugSafe('WARMUP', `${Math.min(idx,list.length)}/${list.length} phrases ready`);
+  if(typeof caches !== 'undefined'){   // keep the persistent cache from growing forever
+    try{ const c = await caches.open(AZURE_CACHE_NAME); const ks = await c.keys(); if(ks.length > AZURE_WARM_MAX + 300) for(const k of ks.slice(0, ks.length - AZURE_WARM_MAX - 300)) await c.delete(k); }catch(e){}
+  }
+  azWarmRunning = false;
+  if(azWarmDirty) azureScheduleWarmup();
 }
 // Original device-voice path, kept as the fallback for when Azure is
 // unreachable, misconfigured, or out of quota — TTS must never go silent
@@ -1796,8 +1860,16 @@ function speakAr(text, onDone){
   };
   if(!AZURE_TTS_KEY){ speakNative(text, mySeq, finish); return; }
   (async ()=>{
+    // Normal case after warm-up: the phrase is already cached -> no network at all.
+    // Rare cache miss: if Azure hasn't answered within AZURE_MISS_BUDGET_MS, speak with the
+    // device voice right away rather than leaving the person in silence for seconds.
+    let settled = false; const ctl = new AbortController();
+    const budget = setTimeout(()=>{ if(settled || mySeq !== ttsSeqId) return; settled = true; ctl.abort(); logDebugSafe('SPEAK', 'Azure slow — device voice now'); speakNative(text, mySeq, finish); }, AZURE_MISS_BUDGET_MS);
     try{
-      const url = await fetchAzureAudioUrl(text);
+      const url = await fetchAzureAudioUrl(text, ctl.signal);
+      clearTimeout(budget);
+      if(settled) return;
+      settled = true;
       if(mySeq !== ttsSeqId) return; // a newer answer or a cancel already happened while we were fetching
       if(currentAzureAudio){ try{ currentAzureAudio.pause(); }catch(e){} }
       const audio = new Audio(url);
@@ -1806,11 +1878,16 @@ function speakAr(text, onDone){
       audio.onended = finish; audio.onerror = finish;
       await audio.play();
     }catch(e){
+      clearTimeout(budget);
+      if(settled && e && e.name === 'AbortError') return;   // budget timer already took over with the device voice
+      settled = true;
+      if(mySeq !== ttsSeqId) return;
       logDebugSafe('SPEAK', `Azure TTS failed (${e.message}) — falling back to device voice`);
       speakNative(text, mySeq, finish);
     }
   })();
 }
+azureScheduleWarmup();
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 // ---------- low-latency commit (speed request) ----------
 // The browser's SpeechRecognition only marks a result `isFinal` after it
@@ -1877,22 +1954,45 @@ function resolveBestTranscript(res){
 
 // `canCommitInterim` (optional): a provisional commit only happens if this
 // says the interim text is trustworthy. Otherwise we wait for the final.
+// How long an interim guess must stay unchanged before we answer on it (ms), or false = wait
+// for the authoritative final. Tiered by how trustworthy the guess is — the final result from
+// the browser can lag a second or more behind the last spoken word, so waiting for it is what
+// made answers take seconds. A wrong early answer is corrected automatically by the final
+// (and an in-progress answer is cut off the moment the person keeps talking).
+//   tier 1 (130ms): exact name that can't be the start of a longer one
+//   tier 2 (350ms): exact zone/alias/number-range hit (incl. a name that prefixes a longer one)
+//   tier 3 (600ms): any match that resolves to ONE courier (STT spelling drift, partial names)
+function interimCommitDelay(t){
+  if(isConfidentMatch(t, false)) return LOW_LATENCY_DEBOUNCE_MS;
+  if(isConfidentMatch(t, true)) return 350;
+  try{
+    const x = expandColloquialNumbers(t);
+    let ms = findCouriersForZone(x);
+    if(!ms.length){ const hit = findRegionForSubArea(normalize(x)); if(hit) ms = findCouriersForZone(hit.region); }
+    if(new Set(ms.map(m=>m.courier)).size === 1) return 600;
+  }catch(e){}
+  return false;
+}
 function makeLowLatencyCommitter(onCommit, canCommitInterim){
   let timer = null, committedIndex = -1, committedText = '';
   return {
     onInterim(index, transcript){
       clearTimeout(timer);
+      let delay = canCommitInterim ? canCommitInterim(transcript) : LOW_LATENCY_DEBOUNCE_MS;
+      if(delay === true) delay = LOW_LATENCY_DEBOUNCE_MS;
+      if(!delay) return;                       // not sure yet — wait for the authoritative final
       timer = setTimeout(()=>{
-        if(canCommitInterim && !canCommitInterim(transcript)) return; // not sure yet — wait for the authoritative final
         committedIndex = index; committedText = normalize(transcript);
+        logDebugSafe('COMMIT', `interim after ${delay}ms: "${transcript}"`);
         onCommit(transcript);
-      }, LOW_LATENCY_DEBOUNCE_MS);
+      }, delay);
     },
     onFinal(index, transcript){
       clearTimeout(timer);
       const norm = normalize(transcript);
       if(index===committedIndex && norm===committedText) return; // already answered via the interim commit, nothing changed
       committedIndex = index; committedText = norm;
+      logDebugSafe('COMMIT', `final: "${transcript}"`);
       onCommit(transcript);
     }
   };
@@ -1975,7 +2075,7 @@ function wireMic(btnId, targetInputId, onResult, forceLang, lowLatency){
         document.getElementById(targetInputId).value = transcript;
         try{ rec.stop(); }catch(e){}
         if(onResult) onResult(transcript);
-      }, t=> isConfidentMatch(t, false));
+      }, interimCommitDelay);
       rec.onresult=(ev)=>{
         // Start at ev.resultIndex, NOT "everything after the last one seen":
         // a result keeps getting updated in place (partial → refined → final)
@@ -2053,7 +2153,7 @@ function startContinuousCycle(){
   const committer = makeLowLatencyCommitter(transcript=>{
     document.getElementById('searchInput').value = transcript;
     doSearch(transcript);
-  }, t=> isConfidentMatch(t, false));
+  }, interimCommitDelay);
   continuousRec = new SpeechRec();
   continuousRec.lang = 'ar-EG'; // search voice is always Arabic
   continuousRec.continuous = true; continuousRec.interimResults=true; continuousRec.maxAlternatives=STT_ALTERNATIVES;
