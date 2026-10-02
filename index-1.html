@@ -1,0 +1,2273 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr" id="htmlRoot">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0f14">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Courier Zone Directory</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#12181f; --panel2:#171f28; --line:#232d38;
+    --accent:#4f8ff0; --danger:#e0475a; --text:#e6ebf1; --text-dim:#8695a4;
+    --radius:10px;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100%;}
+  [dir="rtl"] body{font-family:var(--sans);}
+  .wrap{max-width:520px;margin:0 auto;padding:14px 14px 40px;}
+
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:8px;}
+  .brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;}
+  .brand .ic{width:20px;height:20px;flex:0 0 auto;color:var(--accent);}
+  .headerActions{display:flex;align-items:center;gap:6px;}
+  .iconBtn{
+    display:flex;align-items:center;justify-content:center;gap:6px;
+    width:34px;height:34px;border-radius:8px;background:var(--panel);border:1px solid var(--line);
+    color:var(--text-dim);cursor:pointer;font-size:12px;
+  }
+  .iconBtn.wide{width:auto;padding:0 12px;}
+  .iconBtn svg{width:16px;height:16px;}
+  .iconBtn.active{color:var(--accent);border-color:var(--accent);}
+  .userBadge{font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:6px;}
+
+  .tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
+  .tab{
+    display:flex;align-items:center;gap:6px;padding:9px 12px;border-radius:8px;
+    background:var(--panel);border:1px solid var(--line);cursor:pointer;font-size:12.5px;
+    color:var(--text-dim);flex:1 1 auto;justify-content:center;white-space:nowrap;
+  }
+  .tab svg{width:15px;height:15px;flex:0 0 auto;}
+  .tab.active{background:#152238;border-color:var(--accent);color:var(--accent);}
+  .tab.hidden{display:none;}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:12px;}
+  .label{font-size:12px;color:var(--text-dim);margin-bottom:6px;}
+  select, input[type=text], input[type=email], input[type=password]{
+    width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:8px;padding:11px 12px;font-size:15px;font-family:var(--sans);margin-bottom:10px;
+  }
+  .row{display:flex;gap:8px;align-items:stretch;}
+  .row > *{flex:1;}
+  .btn{
+    border:none;border-radius:8px;padding:11px 14px;font-size:14px;font-weight:600;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:6px;
+  }
+  .btn svg{width:16px;height:16px;}
+  .btn-primary{background:var(--accent);color:#fff;}
+  .btn-outline{background:transparent;border:1px solid var(--line);color:var(--text);}
+  .btn-danger{background:transparent;border:1px solid var(--danger);color:var(--danger);}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .mic-btn{
+    width:46px;flex:0 0 46px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text);
+  }
+  .mic-btn svg{width:18px;height:18px;}
+  .mic-btn.listening{background:var(--danger);border-color:var(--danger);color:#fff;animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.55;}}
+
+  .zonepill{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:5px 10px;margin:3px;font-size:12.5px;}
+  .zonepill button{background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px;padding:0;line-height:1;}
+
+  .courier-card{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--panel2);}
+  .courier-name{font-weight:700;color:var(--accent);font-size:14px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;}
+  .courier-name .del{color:var(--text-dim);font-size:11.5px;cursor:pointer;font-weight:400;}
+  .courier-name .cactions{display:flex;align-items:center;gap:14px;}
+  .courier-name .cdots{color:var(--text-dim);font-size:22px;line-height:1;cursor:pointer;font-weight:700;padding:0 8px;user-select:none;}
+  .empty{color:var(--text-dim);font-size:12.5px;text-align:center;padding:20px 0;}
+
+  .result{border-radius:8px;padding:16px;text-align:center;margin-top:6px;}
+  .result.found{background:#0e1f14;border:1px solid #2f8f52;}
+  .result.notfound{background:#241014;border:1px solid var(--danger);}
+  .result .big{font-size:18px;font-weight:700;margin-bottom:4px;}
+  .result.found .big{color:#4fce7d;}
+  .result.notfound .big{color:var(--danger);}
+  .result .small{font-size:12.5px;color:var(--text-dim);}
+
+  .status{font-size:12px;color:var(--text-dim);text-align:center;margin-top:8px;min-height:16px;}
+  .hint{font-size:11px;color:var(--text-dim);text-align:center;margin-top:4px;}
+  .search-list{margin-top:10px;}
+  .search-item{padding:8px 10px;border-radius:6px;background:var(--panel2);margin-bottom:6px;font-size:12.5px;display:flex;justify-content:space-between;}
+  .search-item b{color:var(--accent);}
+
+  table.missTable{width:100%;border-collapse:collapse;font-size:12.5px;}
+  table.missTable th, table.missTable td{border:1px solid var(--line);padding:7px 8px;text-align:start;}
+  table.missTable th{background:var(--panel2);color:var(--text-dim);font-weight:600;}
+  table.missTable td.count{color:var(--danger);font-weight:700;text-align:center;}
+  .copyBox{width:100%;height:120px;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:8px;padding:8px;font-size:11px;font-family:monospace;margin-top:8px;}
+
+  .authGate{text-align:center;padding:30px 10px;color:var(--text-dim);font-size:13px;}
+  .authGate svg{width:32px;height:32px;margin-bottom:10px;color:var(--text-dim);}
+
+  ::-webkit-scrollbar{width:6px;} ::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px;}
+
+  .fieldModeRow{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--line);}
+  .courier-card.highlighted{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+  .zonepill.highlighted{background:#152238;border-color:var(--accent);color:var(--accent);}
+  .switch{width:42px;height:24px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);position:relative;cursor:pointer;flex:0 0 auto;padding:0;}
+  .switch .knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--text-dim);transition:transform .15s, background .15s;}
+  .switch[aria-checked="true"]{background:var(--accent);border-color:var(--accent);}
+  .switch[aria-checked="true"] .knob{transform:translateX(18px);background:#fff;}
+  [dir="rtl"] .switch[aria-checked="true"] .knob{transform:translateX(-18px);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21c-4-4-7-7.5-7-11a7 7 0 0 1 14 0c0 3.5-3 7-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+      <span data-i18n="appTitle">Zone Directory</span>
+    </div>
+    <div class="headerActions">
+      <button class="iconBtn" id="langToggle" title="Language">EN/AR</button>
+      <div id="authArea"></div>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" id="tabSearch" data-i18n="tabSearch">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <span data-i18n="tabSearch">Search</span>
+    </div>
+    <div class="tab authOnly hidden" id="tabAdd">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      <span data-i18n="tabAdd">Add</span>
+    </div>
+    <div class="tab authOnly hidden" id="tabList">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+      <span data-i18n="tabList">Couriers</span>
+    </div>
+    <div class="tab authOnly hidden" id="tabRegions">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 20l-5.5-2V4L9 6m0 14l6-2m-6 2V6m6 12l5.5 2V6L15 4m0 14V4m0 0L9 6"/></svg>
+      <span data-i18n="tabRegions">Regions</span>
+    </div>
+    <div class="tab authOnly hidden" id="tabExcel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+      <span data-i18n="tabExcel">Excel</span>
+    </div>
+    <div class="tab authOnly hidden" id="tabMissed">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
+      <span data-i18n="tabMissed">Missed</span>
+    </div>
+  </div>
+
+  <!-- SEARCH (public) -->
+  <div id="paneSearch">
+    <div class="card">
+      <div class="fieldModeRow">
+        <span class="label" style="margin:0;" data-i18n="fieldModeLabel">Field Mode — courier name only</span>
+        <button class="switch" id="fieldModeToggle" role="switch" aria-checked="false"><span class="knob"></span></button>
+      </div>
+      <div class="label" data-i18n="regionFilterLabel">Limit search to a region (optional)</div>
+      <select id="regionFilterSelect" style="margin-bottom:10px;">
+        <option value="" data-i18n="regionFilterAll">All regions</option>
+      </select>
+      <div class="label" data-i18n="searchLabel">Type or say an area / street name</div>
+      <div class="row">
+        <input type="text" id="searchInput" data-i18n-ph="searchPlaceholder" placeholder="e.g. Nasr City, Zone 9...">
+        <button class="mic-btn" id="micSearch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 19v3"/></svg></button>
+      </div>
+      <button class="btn btn-primary" id="searchBtn" style="width:100%;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <span data-i18n="searchBtn">Find courier</span>
+      </button>
+      <div id="searchResult"></div>
+      <div id="liveResultsWrap" style="display:none;">
+        <div class="label" id="liveResultsLabel" style="margin-top:6px;"></div>
+        <div id="liveResultsList"></div>
+      </div>
+      <div class="status" id="searchStatus"></div>
+      <div class="hint" id="voiceInfo"></div>
+      <div class="row" style="align-items:center;gap:8px;margin-top:6px;">
+        <div class="hint" id="audioInputInfo" style="flex:1;"></div>
+        <button class="btn btn-outline" id="retryBtMicBtn" style="flex:0 0 auto;padding:6px 12px;font-size:12px;" data-i18n="retryBtMic">Reconnect headset mic</button>
+      </div>
+    </div>
+    <div class="card" style="text-align:center;">
+      <div class="label" style="margin-bottom:10px;" data-i18n="continuousLabel">Continuous mode — tap once, keep asking hands-free</div>
+      <button class="btn btn-outline" id="continuousBtn" style="width:100%;padding:14px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+        <span data-i18n="continuousStart">Start continuous mode</span>
+      </button>
+      <div class="status" id="continuousStatus"></div>
+      <label style="display:flex;align-items:center;gap:6px;justify-content:center;margin-top:8px;font-size:13px;color:var(--muted);">
+        <input type="checkbox" id="contDebugToggle" style="width:auto;">
+        <span data-i18n="contDebugLabel">Show live diagnostics (for testing barge-in)</span>
+      </label>
+      <div id="contDebugLog" style="display:none;text-align:left;direction:ltr;font-family:monospace;font-size:11px;max-height:160px;overflow-y:auto;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px;white-space:pre-wrap;"></div>
+    </div>
+  </div>
+
+  <!-- ADD (auth only) -->
+  <div id="paneAdd" class="authOnly hidden" style="display:none;">
+    <div class="card">
+      <div class="label" data-i18n="quickAddLabel">Quick add: Courier - Zone1, Zone2</div>
+      <div class="row">
+        <input type="text" id="quickInput" data-i18n-ph="quickAddPh" placeholder="e.g. Ahmed Awad - Zone 6, Sheikh Zayed Hospital">
+        <button class="mic-btn" id="micQuick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 19v3"/></svg></button>
+      </div>
+      <button class="btn btn-primary" id="quickAddBtn" style="width:100%;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        <span data-i18n="quickAddBtn">Add line</span>
+      </button>
+      <div class="status" id="quickStatus"></div>
+    </div>
+    <div class="card">
+      <div class="label" data-i18n="courierLabel">Courier name</div>
+      <div class="row" style="margin-bottom:10px;">
+        <input type="text" id="courierInput" list="courierList" data-i18n-ph="typeOrMic" placeholder="Type or use mic">
+        <button class="mic-btn" id="micCourier"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 19v3"/></svg></button>
+      </div>
+      <datalist id="courierList"></datalist>
+      <select id="courierSelect"></select>
+    </div>
+    <div class="card">
+      <div class="label" data-i18n="zoneLabel">Add a zone / street to this courier</div>
+      <div class="row">
+        <input type="text" id="zoneInput" list="zoneList" data-i18n-ph="typeOrMic" placeholder="Type or use mic">
+        <button class="mic-btn" id="micZone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 19v3"/></svg></button>
+      </div>
+      <datalist id="zoneList"></datalist>
+      <button class="btn btn-primary" id="addZoneBtn" style="width:100%;margin-top:10px;">
+        <span data-i18n="addZoneBtn">Add zone</span>
+      </button>
+      <div class="status" id="addStatus"></div>
+    </div>
+  </div>
+
+  <!-- LIST (auth only) -->
+  <div id="paneList" class="authOnly hidden" style="display:none;">
+    <div class="card">
+      <div class="label" data-i18n="listRegionLabel">Show only one region (optional)</div>
+      <select id="listRegionFilter" style="margin-bottom:10px;">
+        <option value="" data-i18n="regionFilterAll">All regions</option>
+      </select>
+      <div class="row">
+        <input type="text" id="listSearchInput" data-i18n-ph="listSearchPh" placeholder="Search a courier or an area...">
+        <button class="btn btn-primary" id="listSearchBtn" style="flex:0 0 auto;padding:0 16px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="card" id="listCard"><div class="empty" data-i18n="noData">No data yet</div></div>
+  </div>
+
+  <!-- REGIONS (auth only) -->
+  <div id="paneRegions" class="authOnly hidden" style="display:none;">
+    <div class="card">
+      <div class="label" data-i18n="addRegionContentTitle" style="font-weight:600;color:var(--text);">Add a region with its content</div>
+      <div class="label" data-i18n="regionNameLabel" style="margin-top:8px;">Region name (new or existing)</div>
+      <input type="text" id="rcRegionInput" list="regionList" data-i18n-ph="regionNamePh" placeholder="e.g. First Settlement">
+      <div class="label" data-i18n="subAreaOptLabel">Sub-area (optional)</div>
+      <input type="text" id="rcSubAreaInput" data-i18n-ph="subAreaOptPh" placeholder="e.g. Al Yasmine — leave empty if none">
+      <div class="label" data-i18n="streetsLabel">Streets (one per line or comma-separated)</div>
+      <textarea id="rcStreetsInput" data-i18n-ph="streetsPh" placeholder="Street 1, Street 2..." style="width:100%;min-height:70px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:11px 12px;font-size:15px;font-family:var(--sans);margin-bottom:10px;"></textarea>
+      <div class="label" data-i18n="responsibleCourierLabel">Responsible courier</div>
+      <input type="text" id="rcCourierInput" list="courierList" data-i18n-ph="responsibleCourierPh" placeholder="Type or pick existing courier">
+      <button class="btn btn-primary" id="addRegionContentBtn" style="width:100%;margin-top:10px;" data-i18n="addRegionContentBtn">Save region content</button>
+      <div class="status" id="rcStatus"></div>
+    </div>
+    <div class="card" id="regionNavCard" style="display:none;">
+      <div class="row" id="regionNavRow" style="flex-wrap:wrap;gap:6px;"></div>
+    </div>
+    <div class="card">
+      <div class="label" data-i18n="subAreaLabel">Sub-area name (e.g. Al Yasmine)</div>
+      <input type="text" id="subAreaInput" data-i18n-ph="subAreaPh" placeholder="e.g. Al Yasmine">
+      <div class="label" style="margin-top:10px;" data-i18n="parentRegionLabel">Belongs to region (e.g. First Settlement)</div>
+      <input type="text" id="parentRegionInput" list="regionList" data-i18n-ph="parentRegionPh" placeholder="e.g. First Settlement">
+      <datalist id="regionList"></datalist>
+      <button class="btn btn-primary" id="addAliasBtn" style="width:100%;margin-top:10px;">
+        <span data-i18n="addLink">Add link</span>
+      </button>
+      <div class="status" id="aliasStatus"></div>
+    </div>
+    <div class="card" id="aliasListCard"><div class="empty" data-i18n="noLinks">No region links yet</div></div>
+  </div>
+
+  <!-- EXCEL (auth only) -->
+  <div id="paneExcel" class="authOnly hidden" style="display:none;">
+    <div class="card">
+      <div class="label" data-i18n="excelImportLabel">Import unified template</div>
+      <div class="hint" style="margin-bottom:10px;" data-i18n="excelImportHint">One file, two sheets: "Couriers" (Courier, Zones) and "Regions" (SubArea, ParentRegion). Header row is ignored automatically.</div>
+      <input type="file" id="excelFile" accept=".xlsx,.xls,.csv" style="width:100%;color:var(--text);margin-bottom:10px;">
+      <button class="btn btn-primary" id="importBtn" style="width:100%;" data-i18n="importBtn">Import file</button>
+      <div class="status" id="importStatus"></div>
+    </div>
+    <div class="card">
+      <div class="label" data-i18n="excelExportLabel">Export current data (unified template)</div>
+      <button class="btn btn-outline" id="exportBtn" style="width:100%;" data-i18n="exportBtn">Export Excel</button>
+      <div class="status" id="exportStatus"></div>
+    </div>
+  </div>
+
+  <!-- MISSED SEARCHES (auth only) -->
+  <div id="paneMissed" class="authOnly hidden" style="display:none;">
+    <div class="card">
+      <div class="label" data-i18n="missedLabel">Searches with no result — sorted by how often they happened</div>
+      <div id="missedTableWrap"><div class="empty" data-i18n="noMissed">No missed searches recorded</div></div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn btn-outline" id="copyMissedBtn" data-i18n="copyForExcel">Copy table for Excel</button>
+        <button class="btn btn-danger" id="clearMissedBtn" data-i18n="clearMissed">Clear all</button>
+      </div>
+      <div class="status" id="missedClearStatus"></div>
+      <textarea class="copyBox" id="missedCopyBox" readonly style="display:none;"></textarea>
+    </div>
+  </div>
+</div>
+
+<!-- SIGN IN MODAL -->
+<div id="signinModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;align-items:center;justify-content:center;">
+  <div class="card" style="width:88%;max-width:360px;">
+    <div class="label" data-i18n="signinTitle" style="font-size:14px;color:var(--text);margin-bottom:12px;">Sign in</div>
+    <input type="email" id="loginEmail" data-i18n-ph="email" placeholder="Email">
+    <input type="password" id="loginPassword" data-i18n-ph="password" placeholder="Password">
+    <div class="row">
+      <button class="btn btn-primary" id="loginBtn" data-i18n="signin">Sign in</button>
+      <button class="btn btn-outline" id="cancelLoginBtn" data-i18n="cancel">Cancel</button>
+    </div>
+    <div class="status" id="loginStatus"></div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+// ================= Firebase =================
+const firebaseConfig = {
+  apiKey: "AIzaSyAqhBjcFEA8j_wl6TvPLqWTsUam2JP6_Rw",
+  authDomain: "aramex-courier-78754.firebaseapp.com",
+  databaseURL: "https://aramex-courier-78754-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "aramex-courier-78754",
+  storageBucket: "aramex-courier-78754.firebasestorage.app",
+  messagingSenderId: "778595433919",
+  appId: "1:778595433919:web:2fd94fbc4a33484539350a"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.database();
+const dataRef = db.ref('couriers-directory');
+const aliasesRef = db.ref('region-aliases');
+const missedRef = db.ref('missed-searches');
+
+// ================= i18n =================
+const translations = {
+  en: {
+    appTitle:"Zone Directory", tabSearch:"Search", tabAdd:"Add", tabList:"Couriers", tabRegions:"Regions",
+    tabExcel:"Excel", tabMissed:"Missed",
+    searchLabel:"Type or say an area / street name", searchPlaceholder:"e.g. Nasr City, Zone 9...",
+    searchBtn:"Find courier", continuousLabel:"Continuous mode — tap once, keep asking hands-free",
+    fieldModeLabel:"Field Mode — courier name only",
+    continuousStart:"Start continuous mode", continuousStop:"Stop continuous mode",
+    quickAddLabel:"Quick add: Courier - Zone1, Zone2", quickAddPh:"e.g. Ahmed Awad - Zone 6, Sheikh Zayed Hospital",
+    quickAddBtn:"Add line", courierLabel:"Courier name", typeOrMic:"Type or use mic",
+    zoneLabel:"Add a zone / street to this courier", addZoneBtn:"Add zone",
+    noData:"No data yet", subAreaLabel:"Sub-area name (e.g. Al Yasmine)", subAreaPh:"e.g. Al Yasmine",
+    parentRegionLabel:"Belongs to region (e.g. First Settlement)", parentRegionPh:"e.g. First Settlement",
+    addLink:"Add link", noLinks:"No region links yet",
+    excelImportLabel:"Import unified template",
+    excelImportHint:"One file, two sheets: \"Couriers\" (Courier, Zones) and \"Regions\" (SubArea, ParentRegion). Header row is ignored automatically.",
+    importBtn:"Import file", excelExportLabel:"Export current data (unified template)", exportBtn:"Export Excel",
+    missedLabel:"Searches with no result — sorted by how often they happened",
+    noMissed:"No missed searches recorded", copyForExcel:"Copy table for Excel",
+    signinTitle:"Sign in", email:"Email", password:"Password", signin:"Sign in", cancel:"Cancel",
+    signOut:"Sign out", pickCourier:"— or pick existing courier —",
+    respFor:"responsible for", noResult:"No result", noResultSub:"No courier recorded for this area yet",
+    belongsTo:"belongs to region", noCourierForRegion:"No confirmed courier for",
+    loadingSpeech:"Browser has no voice support", listSearchPh:"Search a courier or an area...",
+    clearMissed:"Clear all", clearMissedConfirm:"Delete all missed-search records? This won't touch couriers or regions.",
+    regionFilterLabel:"Limit search to a region (optional)", regionFilterAll:"All regions",
+    exportWaiting:"Loading data, please wait…", exportError:"Export failed",
+    addRegionContentTitle:"Add a region with its content",
+    regionNameLabel:"Region name (new or existing)", regionNamePh:"e.g. First Settlement",
+    subAreaOptLabel:"Sub-area (optional)", subAreaOptPh:"e.g. Al Yasmine — leave empty if none",
+    streetsLabel:"Streets (one per line or comma-separated)", streetsPh:"Street 1, Street 2...",
+    responsibleCourierLabel:"Responsible courier", responsibleCourierPh:"Type or pick existing courier",
+    addRegionContentBtn:"Save region content", regionNavAll:"All",
+    contDebugLabel:"Show live diagnostics (for testing barge-in)",
+    listRegionLabel:"Show only one region (optional)", listRegionNone:"Not linked to any region",
+    listRegionEmpty:"No couriers found for this region", listShowing:"Showing",
+    listSearchEmpty:"No couriers match this search",
+    retryBtMic:"Reconnect headset mic", audioInputChecking:"Checking audio input…",
+    audioInputBt:"🎧 Using: {name}", audioInputBuiltin:"📱 Using the phone's built-in mic (no headset mic detected)",
+    audioInputUnknown:"Audio input: {name}", audioInputNone:"No microphone detected",
+    audioInputHelp:"If your headset's mic still isn't picked up: open your phone's Bluetooth settings (or make a quick phone call and hang up) so the OS switches the headset to call/voice mode — a website can't force that switch itself, only the OS can.",
+    editName:"Edit name", editSave:"Save", editNameInvalid:"Name can't be empty or contain . # $ [ ] /",
+    editNameExists:"That name already exists — merge these zones into it?",
+    liveResultsAll:"All matches for", liveResultsFor:"for",
+  },
+  ar: {
+    appTitle:"دليل المناطق", tabSearch:"بحث", tabAdd:"إضافة", tabList:"المناديب", tabRegions:"المناطق",
+    tabExcel:"إكسل", tabMissed:"غير مجاب",
+    searchLabel:"اكتب أو قول اسم المنطقة أو الشارع", searchPlaceholder:"مثال: مدينة نصر، المنطقة 9...",
+    searchBtn:"دور على المندوب", continuousLabel:"الوضع المستمر — دوس مرة واحدة وكمّل تسأل",
+    fieldModeLabel:"وضع الميدان — اسم المندوب بس",
+    continuousStart:"ابدأ الوضع المستمر", continuousStop:"إيقاف الوضع المستمر",
+    quickAddLabel:"إضافة سريعة: المندوب - منطقة1, منطقة2", quickAddPh:"مثال: أحمد عوض - الحي السادس, مستشفى الشيخ زايد",
+    quickAddBtn:"إضافة السطر", courierLabel:"اسم المندوب", typeOrMic:"اكتب أو استخدم المايك",
+    zoneLabel:"إضافة منطقة لهذا المندوب", addZoneBtn:"إضافة المنطقة",
+    noData:"لا توجد بيانات بعد", subAreaLabel:"اسم منطقة فرعية (مثال: الياسمين)", subAreaPh:"مثال: الياسمين",
+    parentRegionLabel:"تابعة لمنطقة (مثال: التجمع الأول)", parentRegionPh:"مثال: التجمع الأول",
+    addLink:"إضافة الربط", noLinks:"لا يوجد ربط بعد",
+    excelImportLabel:"استيراد القالب الموحّد",
+    excelImportHint:"ملف واحد بورقتين: \"Couriers\" (المندوب، المناطق) و\"Regions\" (المنطقة الفرعية، المنطقة الكبرى). السطر الأول يتجاهل تلقائياً.",
+    importBtn:"استيراد الملف", excelExportLabel:"تصدير البيانات الحالية (القالب الموحّد)", exportBtn:"تصدير إكسل",
+    missedLabel:"عمليات بحث بدون نتيجة — مرتبة حسب عدد مرات التكرار",
+    noMissed:"لا توجد عمليات بحث فاشلة مسجلة", copyForExcel:"نسخ الجدول لإكسل",
+    signinTitle:"تسجيل الدخول", email:"البريد الإلكتروني", password:"كلمة السر", signin:"دخول", cancel:"إلغاء",
+    signOut:"خروج", pickCourier:"— أو اختر مندوب موجود —",
+    respFor:"مسؤول عن", noResult:"مفيش نتيجة", noResultSub:"مفيش مندوب مسجل للمنطقة دي لسه",
+    belongsTo:"تابعة لمنطقة", noCourierForRegion:"لسه مفيش مندوب متأكد لـ",
+    loadingSpeech:"المتصفح ده مش بيدعم الصوت", listSearchPh:"دور على مندوب أو منطقة...",
+    clearMissed:"مسح الكل", clearMissedConfirm:"هيتمسح كل سجل البحث الفاشل. مش هيأثر على بيانات المناديب أو المناطق. متأكد؟",
+    regionFilterLabel:"حصر البحث في منطقة معينة (اختياري)", regionFilterAll:"كل المناطق",
+    exportWaiting:"البيانات لسه بتحمّل، استنى ثانية...", exportError:"فشل التصدير",
+    addRegionContentTitle:"إضافة منطقة كبرى بكل محتواها",
+    regionNameLabel:"اسم المنطقة الكبرى (جديدة أو موجودة)", regionNamePh:"مثال: التجمع الأول",
+    subAreaOptLabel:"منطقة فرعية (اختياري)", subAreaOptPh:"مثال: الياسمين — سيبها فاضية لو مفيش",
+    streetsLabel:"الشوارع (سطر لكل واحد أو مفصولة بفاصلة)", streetsPh:"شارع 1, شارع 2...",
+    responsibleCourierLabel:"المندوب المسؤول", responsibleCourierPh:"اكتب أو اختار مندوب موجود",
+    addRegionContentBtn:"حفظ محتوى المنطقة", regionNavAll:"الكل",
+    contDebugLabel:"إظهار تشخيص مباشر (لاختبار المقاطعة)",
+    listRegionLabel:"عرض منطقة معينة بس (اختياري)", listRegionNone:"مش مربوطة بأي منطقة",
+    listRegionEmpty:"مفيش مناديب للمنطقة دي", listShowing:"معروض",
+    listSearchEmpty:"مفيش نتايج مطابقة للبحث ده",
+    retryBtMic:"أعد الاتصال بمايك السماعة", audioInputChecking:"بيتأكد من مصدر الصوت...",
+    audioInputBt:"🎧 شغال دلوقتي على: {name}", audioInputBuiltin:"📱 شغال على مايك الموبايل (مافيش مايك سماعة متسجل)",
+    audioInputUnknown:"مصدر الصوت: {name}", audioInputNone:"مفيش مايك متسجل",
+    audioInputHelp:"لو مايك السماعة لسه مش شغال: افتح إعدادات البلوتوث في الموبايل، أو اعمل مكالمة سريعة وقفلها — عشان النظام يحوّل السماعة لوضع المكالمات/الصوت. الموقع نفسه مش قادر يجبر التحويل ده، ده بيتحكم فيه النظام بس.",
+    editName:"تعديل الاسم", editSave:"حفظ", editNameInvalid:"الاسم مينفعش يبقى فاضي ولا فيه . # $ [ ] /",
+    editNameExists:"الاسم ده موجود بالفعل — أدمج المناطق دي فيه؟",
+    liveResultsAll:"كل النتائج اللي فيها", liveResultsFor:"لـ",
+  }
+};
+let lang = 'en';
+function t(key){ return translations[lang][key] || key; }
+function applyLang(){
+  document.getElementById('htmlRoot').lang = lang;
+  document.getElementById('htmlRoot').dir = lang==='ar' ? 'rtl' : 'ltr';
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{
+    el.placeholder = t(el.dataset.i18nPh);
+  });
+  const cs = document.getElementById('courierSelect');
+  if(cs) cs.querySelector('option[value=""]') && (cs.querySelector('option[value=""]').textContent = t('pickCourier'));
+  const cb = document.getElementById('continuousBtn');
+  if(cb && !continuousActive) cb.querySelector('span').textContent = t('continuousStart');
+  if(typeof renderRegionFilterOptions==='function') renderRegionFilterOptions();
+  if(typeof renderRegionNav==='function' && currentTab==='regions') renderRegionNav();
+}
+document.getElementById('langToggle').addEventListener('click', ()=>{
+  lang = lang==='en' ? 'ar' : 'en';
+  applyLang();
+});
+
+// ================= data =================
+const STORAGE_KEY = 'couriers-directory';
+const ALIASES_KEY = 'region-aliases';
+let data = {};
+let aliases = {};
+let selectedCourier = '';
+let isAuthed = false;
+let currentTab = 'search';
+// Guards the Couriers-tab inline "+ zone" field against a Firebase-render
+// race that was leaving a stale copy of the just-added name in the box —
+// see renderList() for the full explanation.
+let inlineAddJustCommitted = null;
+let editingCourier = null, editingValue = ''; // Couriers-tab rename in progress (survives re-renders)
+const tabIds = ['search','add','list','regions','excel','missed'];
+
+function normalize(s){
+  return (s||'')
+    .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)) // Arabic-Indic digits -> ASCII
+    .replace(/[\u064B-\u065F]/g,'').replace(/[إأآا]/g,'ا').replace(/ى/g,'ي')
+    .replace(/ة/g,'ه').replace(/ؤ/g,'و').replace(/ئ/g,'ي')
+    .replace(/\s+/g,' ').trim().toLowerCase();
+}
+
+// ---------- speech-recognition error tolerance ----------
+// Levenshtein edit distance, used to tolerate small mis-transcriptions
+// (e.g. "عمارات مليسا" heard as "عمارات ملسا" or "عمارات بلسا").
+// A fuzzy fallback on a very short query is inherently unsafe — "تمام" (4
+// chars) can land within edit-distance 1-2 of a real short zone/courier name
+// purely by coincidence, and 2 chars different out of 4 is barely "similar"
+// at all. FUZZY_MIN_LEN gates fuzzy matching out entirely below this length;
+// FUZZY_RATIO is also tighter than the per-word ratio used elsewhere, since
+// this is the fallback that most directly produces a delegate name.
+const FUZZY_MIN_LEN = 6, FUZZY_RATIO = 0.25;
+function editDistance(a, b){
+  const m = a.length, n = b.length;
+  if(!m) return n; if(!n) return m;
+  const dp = new Array(n+1);
+  for(let j=0;j<=n;j++) dp[j]=j;
+  for(let i=1;i<=m;i++){
+    let prev = dp[0]; dp[0]=i;
+    for(let j=1;j<=n;j++){
+      const tmp = dp[j];
+      dp[j] = a[i-1]===b[j-1] ? prev : 1+Math.min(prev, dp[j], dp[j-1]);
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+// Word-level fuzzy match: compares query against each zone allowing a small
+// number of character-level errors proportional to word length, so minor STT
+// mistakes ("ملسا"/"بلسا" vs "مليسا") still resolve to the right zone.
+function fuzzyScore(query, target){
+  const qWords = query.split(' ').filter(Boolean);
+  const tWords = target.split(' ').filter(Boolean);
+  if(!qWords.length || !tWords.length) return Infinity;
+  let totalDist = 0;
+  qWords.forEach(qw=>{
+    let best = Infinity;
+    tWords.forEach(tw=>{
+      const d = editDistance(qw, tw);
+      const allowed = Math.max(1, Math.round(Math.max(qw.length, tw.length) * 0.42));
+      if(d <= allowed && d < best) best = d;
+    });
+    totalDist += (best===Infinity ? qw.length : best);
+  });
+  return totalDist;
+}
+
+// ---------- colloquial repeated-digit numbers ("ثلاث سبعات" -> "777") ----------
+const AR_COUNT_WORDS = {'واحد':1,'واحده':1,'اتنين':2,'إتنين':2,'اثنين':2,'إثنين':2,
+  'تلات':3,'تلاته':3,'ثلاث':3,'ثلاثه':3,'اربع':4,'أربع':4,'اربعه':4,'أربعه':4,
+  'خمس':5,'خمسه':5,'ست':6,'سته':6,'سبع':7,'سبعه':7,'تمن':8,'تمانيه':8,'ثمانيه':8,
+  'تسع':9,'تسعه':9};
+const AR_DIGIT_PLURALS = {'صفرات':'0','واحدات':'1','اتنينات':'2','إتنينات':'2',
+  'تلاتات':'3','ثلاثات':'3','اربعات':'4','أربعات':'4','خمسات':'5','ستات':'6',
+  'سبعات':'7','تمنيات':'8','تمانيات':'8','ثمانيات':'8','تسعات':'9'};
+function expandColloquialNumbers(text){
+  const words = text.split(/\s+/);
+  const out = [];
+  for(let i=0;i<words.length;i++){
+    const w1 = normalize(words[i]);
+    const w2 = i+1<words.length ? normalize(words[i+1]) : '';
+    if(AR_COUNT_WORDS[w1] && AR_DIGIT_PLURALS[w2]){
+      out.push(AR_DIGIT_PLURALS[w2].repeat(AR_COUNT_WORDS[w1]));
+      i++; // consumed both words
+    } else {
+      out.push(words[i]);
+    }
+  }
+  return out.join(' ');
+}
+
+// ---------- "فردي/زوجي <street> من N1 ل N2" range zones (Task 2) ----------
+// Handles records like:
+//   "العمارات من 1 إلى 65"          (a bare entity-type range, "من" optional)
+//   "فيلات 1 إلي 17"                 (same, no "من" at all — real data has both)
+//   "فيلات من 23 فيما فوق"           (open-ended range)
+//   "فردي مصطفى النحاس من 99 ل 121"  (a genuine street name + parity)
+// normalize() already folds إلى/الى/إلي down to one spelling ("الي") and any
+// Arabic-Indic digits to ASCII, so the patterns below only need to name the
+// post-normalize forms.
+const BUILDING_WORDS = ['عماره','عمارات','عمار'];
+const VILLA_WORDS = ['فيلا','فيله','فيلات'];
+const BLOCK_WORDS = ['مجاوره','مجاورات'];
+const FILLER_WORDS = ['شارع','رقم']; // stripped, but don't lock the entity type
+const TYPE_WORDS = BUILDING_WORDS.concat(VILLA_WORDS, BLOCK_WORDS);
+function stripAl(w){ return w.startsWith('ال') && w.length>3 ? w.slice(2) : w; }
+// Detects a distinguishing entity type (building/villa/block) in a bit of
+// normalized text, if any. Streets have no type — only these three do,
+// which matters because their ranges commonly overlap (e.g. "عمارات 1-65"
+// and "فيلات 1-17" both cover the number 13) and must not cross-match.
+function detectEntityType(normText){
+  const words = (normText||'').split(' ').map(stripAl);
+  if(words.some(w=>BUILDING_WORDS.includes(w))) return 'building';
+  if(words.some(w=>VILLA_WORDS.includes(w))) return 'villa';
+  if(words.some(w=>BLOCK_WORDS.includes(w))) return 'block';
+  return null;
+}
+function isBareEntityLabel(labelNorm, type){
+  const list = type==='building'?BUILDING_WORDS : type==='villa'?VILLA_WORDS : type==='block'?BLOCK_WORDS : [];
+  return list.includes(stripAl((labelNorm||'').trim()));
+}
+function parseRangeZone(zoneStrRaw){
+  const zoneStr = normalize(zoneStrRaw);
+  // Open-ended: "<label> [من] N فيما فوق / فما فوق / وفوق / فأكثر / وأكثر"
+  let m = zoneStr.match(/^(فردي|زوجي)?\s*(.+?)\s*(?:من\s*)?(\d+)\s*(?:فيما فوق|فما فوق|وفوق|فاكثر|واكثر)\s*$/);
+  if(m){
+    const parity = m[1]==='فردي' ? 'odd' : m[1]==='زوجي' ? 'even' : null;
+    const label = m[2].trim();
+    return { label, min: +m[3], max: Infinity, parity, type: detectEntityType(label) };
+  }
+  // Closed range, "من" optional, separator any of الي/حتي/ل/-
+  m = zoneStr.match(/^(فردي|زوجي)?\s*(.+?)\s*(?:من\s*)?(\d+)\s*(?:الي|حتي|ل|-)\s*(\d+)\s*$/);
+  if(m && m[2].trim()){
+    const parity = m[1]==='فردي' ? 'odd' : m[1]==='زوجي' ? 'even' : null;
+    const label = m[2].trim();
+    return { label, min: Math.min(+m[3],+m[4]), max: Math.max(+m[3],+m[4]), parity, type: detectEntityType(label) };
+  }
+  return null;
+}
+// Does a spoken query like "الرحاب عمارة 13" or "52 الميرغني" fall inside a
+// range-zone's numeric range (matching its type and odd/even rule, if any)?
+function matchesRangeZone(query, zoneStr, preParsed){
+  const parsed = preParsed!==undefined ? preParsed : parseRangeZone(zoneStr);
+  if(!parsed) return false;
+  const q = normalize(query);
+  // The query can carry an earlier area number too ("الرحاب 1 عمارة 113") —
+  // the actual unit number is the LAST one spoken, not the first.
+  const allNums = q.match(/\d+/g);
+  if(!allNums) return false;
+  const numStr = allNums[allNums.length-1];
+  const num = parseInt(numStr, 10);
+  if(num < parsed.min || num > parsed.max) return false;
+  if(parsed.parity==='odd' && num % 2 === 0) return false;
+  if(parsed.parity==='even' && num % 2 !== 0) return false;
+
+  const restWords = q.replace(/\d+/g, ' ').split(' ').filter(Boolean).filter(w=>!FILLER_WORDS.includes(stripAl(w)));
+  const rest = restWords.join(' ');
+  const qType = detectEntityType(rest);
+  // A record with a distinguishing type only matches a query naming that
+  // SAME type (or no type at all) — this is what keeps "فيلا 13" out of an
+  // "عمارات" range that happens to cover 13 too.
+  if(parsed.type && qType && parsed.type !== qType) return false;
+
+  const labelNorm = normalize(parsed.label);
+  if(parsed.type && isBareEntityLabel(labelNorm, parsed.type)){
+    // A bare "العمارات"/"فيلات"/"المجاورات" record is a pure structural
+    // range — number (+ type) already checked above. Any words still left
+    // in the query (a region name, "شارع", "رقم"...) are disambiguation
+    // CONTEXT handled by the caller, not part of this record's label, so
+    // they must not be forced into a fuzzy match against the bare word.
+    return true;
+  }
+  // Otherwise it's a genuine street name range ("فردي مصطفى النحاس ...") —
+  // compare what's left of the query (minus the number/type/filler words)
+  // against the label.
+  const textPart = restWords.filter(w=>!TYPE_WORDS.includes(stripAl(w))).join(' ').trim();
+  if(!textPart) return true; // just a bare number with no other text — still allow
+  return labelNorm.includes(textPart) || textPart.includes(labelNorm) || fuzzyScore(textPart, labelNorm) <= 2;
+}
+
+// local cache for instant offline-ish load
+try{ const raw = localStorage.getItem(STORAGE_KEY); if(raw) data = JSON.parse(raw); }catch(e){}
+try{ const rawA = localStorage.getItem(ALIASES_KEY); if(rawA) aliases = JSON.parse(rawA); }catch(e){}
+
+// dataReady/aliasesReady flip to true only once the FIRST live snapshot from
+// Firebase has actually arrived. Before that, `data`/`aliases` may only hold
+// the local cache (which can be stale or empty on a fresh device/browser) —
+// exporting before this point is exactly what made Excel exports come out
+// incomplete (Known Issue #3), since the export read whatever was in memory
+// at that instant instead of waiting for the real, current data.
+let dataReady = false, aliasesReady = false;
+dataRef.on('value', snap=>{
+  data = snap.val() || {};
+  dataReady = true;
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }catch(e){}
+  renderAll();
+});
+aliasesRef.on('value', snap=>{
+  aliases = snap.val() || {};
+  aliasesReady = true;
+  try{ localStorage.setItem(ALIASES_KEY, JSON.stringify(aliases)); }catch(e){}
+  renderAll();
+});
+
+async function saveData(){ zoneIndexCache = null; try{ await dataRef.set(data); return true; }catch(e){ alert('Save failed — are you signed in?'); return false; } }
+async function saveAliases(){ try{ await aliasesRef.set(aliases); return true; }catch(e){ alert('Save failed — are you signed in?'); return false; } }
+
+// Clears an input right after a successful Enter-submit and keeps it focused
+// for the next entry. Two things make a plain `value=''` unreliable on phones:
+//  1) predictive/Arabic keyboards hold the word in an internal composing
+//     buffer; setting .value directly doesn't tell them, so they can write the
+//     same word straight back a moment later — that's the "name was added but
+//     is still sitting in the box" symptom. Clearing through the editing
+//     pipeline (select + delete) informs the keyboard properly.
+//  2) as a backstop, for a short window we wipe the field again if it
+//     reappears holding exactly the text we just submitted.
+function clearAfterSubmit(el, committedText){
+  const c = normalize(committedText);
+  const wipe = ()=>{ if(el.value && normalize(el.value) === c) el.value = ''; };
+  try{ el.focus(); el.select(); if(!document.execCommand('delete')) el.value = ''; }catch(e){ el.value = ''; }
+  el.value = '';
+  const stopAt = Date.now() + 700;
+  const onEvt = ()=>{ if(Date.now() <= stopAt) wipe(); };
+  el.addEventListener('input', onEvt); el.addEventListener('compositionend', onEvt);
+  [0, 60, 150, 300, 500].forEach(ms=> setTimeout(wipe, ms));
+  setTimeout(()=>{ el.removeEventListener('input', onEvt); el.removeEventListener('compositionend', onEvt); }, 750);
+}
+// Visual cue for "not added" (e.g. already exists): brief red outline, text
+// selected so typing replaces it. The text is deliberately NOT cleared.
+function flashInput(el){
+  try{ el.select(); }catch(e){}
+  el.style.outline = '2px solid #d9534f';
+  setTimeout(()=>{ el.style.outline = ''; }, 700);
+}
+
+// ================= auth =================
+const authArea = document.getElementById('authArea');
+function renderAuthArea(user){
+  if(user){
+    authArea.innerHTML = `<button class="iconBtn wide" id="signOutBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+      <span>${t('signOut')}</span></button>`;
+    document.getElementById('signOutBtn').onclick = ()=> auth.signOut();
+  } else {
+    authArea.innerHTML = `<button class="iconBtn" id="signInIconBtn" title="Sign in">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    </button>`;
+    document.getElementById('signInIconBtn').onclick = ()=>{ document.getElementById('signinModal').style.display='flex'; };
+  }
+}
+auth.onAuthStateChanged(user=>{
+  isAuthed = !!user;
+  renderAuthArea(user);
+  document.querySelectorAll('.authOnly').forEach(el=> el.classList.toggle('hidden', !isAuthed));
+  if(!isAuthed){
+    // if user was on a protected tab, bounce back to search
+    if(currentTab !== 'search') showTab('search');
+  }
+});
+document.getElementById('cancelLoginBtn').onclick = ()=>{ document.getElementById('signinModal').style.display='none'; };
+document.getElementById('loginBtn').onclick = async ()=>{
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPassword').value;
+  const st = document.getElementById('loginStatus');
+  try{
+    await auth.signInWithEmailAndPassword(email, pass);
+    document.getElementById('signinModal').style.display='none';
+    st.textContent='';
+  }catch(e){ st.textContent = e.message; }
+};
+
+// ================= tabs =================
+function showTab(name){
+  currentTab = name;
+  tabIds.forEach(k=>{
+    document.getElementById('tab'+cap(k)).classList.toggle('active', k===name);
+    document.getElementById('pane'+cap(k)).style.display = k===name ? '' : 'none';
+  });
+  if(name==='list') renderList();
+  if(name==='regions'){ renderAliasList(activeRegionNav || undefined); renderRegionNav(); }
+  if(name==='missed') renderMissed();
+  if(name==='excel') ensureXlsxLoaded();
+}
+function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+tabIds.forEach(k=>{ document.getElementById('tab'+cap(k)).addEventListener('click', ()=>showTab(k)); });
+
+// ================= lazy-load xlsx (only when Excel tab opened) =================
+let xlsxLoaded = false, xlsxLoading = false;
+function ensureXlsxLoaded(){
+  if(xlsxLoaded || xlsxLoading) return;
+  xlsxLoading = true;
+  const s = document.createElement('script');
+  s.src = 'xlsx.full.min.js';
+  s.onload = ()=>{ xlsxLoaded = true; xlsxLoading = false; };
+  document.body.appendChild(s);
+}
+
+// ================= render =================
+function renderAll(){ renderCourierSelect(); if(currentTab==='list') renderList(); renderDatalists(); if(currentTab==='regions'){ renderAliasList(); renderRegionNav(); } renderRegionFilterOptions(); }
+function renderCourierSelect(){
+  const sel = document.getElementById('courierSelect');
+  const names = Object.keys(data);
+  sel.innerHTML = `<option value="">${t('pickCourier')}</option>` + names.map(n=>`<option value="${n}">${n} (${data[n].length})</option>`).join('');
+  sel.value = selectedCourier || '';
+}
+document.getElementById('courierSelect').addEventListener('change', e=>{
+  selectedCourier = e.target.value;
+  if(selectedCourier) document.getElementById('courierInput').value = selectedCourier;
+});
+document.getElementById('courierInput').addEventListener('input', e=>{ selectedCourier = e.target.value.trim(); });
+
+// Add-tab zone form. Order matters for fast repeated entry: validate and update
+// the local list synchronously, clear the field IMMEDIATELY, and only then save
+// in the background. (The old version waited for the network round-trip before
+// clearing, so the box kept the old name for up to a second — and clearing
+// after the wait could wipe the next name already being typed.)
+// Nothing is cleared when validation fails or the zone already exists.
+function submitZone(){
+  const courierEl = document.getElementById('courierInput');
+  const zoneEl = document.getElementById('zoneInput');
+  const courier = courierEl.value.trim();
+  const zone = zoneEl.value.trim();
+  const st = document.getElementById('addStatus');
+  if(!courier || !zone){ st.textContent = '⚠'; return; }
+  selectedCourier = courier;
+  if(!data[courier]) data[courier] = [];
+  if(data[courier].some(z=>normalize(z)===normalize(zone))){ st.textContent='ℹ️'; flashInput(zoneEl); return; }
+  data[courier].push(zone);
+  st.textContent = '✅';
+  clearAfterSubmit(zoneEl, zone);
+  saveData().then(ok=>{
+    if(ok) return;
+    const a = data[courier]; const k = a ? a.lastIndexOf(zone) : -1; if(k>=0) a.splice(k,1); // roll back, nothing was saved
+    if(!zoneEl.value) zoneEl.value = zone;                                                    // and give the text back
+    st.textContent = '⚠';
+  });
+}
+document.getElementById('addZoneBtn').addEventListener('click', submitZone);
+document.getElementById('zoneInput').addEventListener('keydown', e=>{
+  if(e.key==='Enter'){ e.preventDefault(); submitZone(); }
+});
+
+function quickAdd(text){
+  const st = document.getElementById('quickStatus');
+  const qi = document.getElementById('quickInput');
+  if(!text || !text.includes('-')){ st.textContent='⚠'; return; }
+  const idx = text.indexOf('-');
+  const courier = text.slice(0, idx).trim();
+  const zonesRaw = text.slice(idx+1).trim();
+  if(!courier || !zonesRaw){ st.textContent='⚠'; return; }
+  const zones = zonesRaw.split(/[,،\n]/).map(z=>z.trim()).filter(Boolean);
+  if(!data[courier]) data[courier] = [];
+  const addedZones = [];
+  zones.forEach(z=>{ if(!data[courier].some(x=>normalize(x)===normalize(z))){ data[courier].push(z); addedZones.push(z); } });
+  if(!addedZones.length){ st.textContent='ℹ️'; flashInput(qi); return; } // everything already existed — keep the text
+  st.textContent = `✅ ${addedZones.length}`;
+  clearAfterSubmit(qi, text);
+  saveData().then(ok=>{
+    if(ok) return;
+    addedZones.forEach(z=>{ const k = data[courier].lastIndexOf(z); if(k>=0) data[courier].splice(k,1); });
+    if(!qi.value) qi.value = text;
+    st.textContent = '⚠';
+  });
+}
+document.getElementById('quickAddBtn').addEventListener('click', ()=> quickAdd(document.getElementById('quickInput').value));
+document.getElementById('quickInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); quickAdd(e.target.value); } });
+
+function renderDatalists(){
+  const courierList = document.getElementById('courierList');
+  const zoneList = document.getElementById('zoneList');
+  const regionList = document.getElementById('regionList');
+  const names = Object.keys(data);
+  courierList.innerHTML = names.map(n=>`<option value="${n}">`).join('');
+  const allZones = new Set();
+  names.forEach(n=> data[n].forEach(z=> allZones.add(z)));
+  zoneList.innerHTML = Array.from(allZones).map(z=>`<option value="${z}">`).join('');
+  if(regionList){
+    const allRegions = new Set([...allZones, ...Object.values(aliases)]);
+    regionList.innerHTML = Array.from(allRegions).map(z=>`<option value="${z}">`).join('');
+  }
+}
+
+function renderList(highlightCourier, highlightZone){
+  const el = document.getElementById('listCard');
+  // Every save round-trips through Firebase and comes back through
+  // dataRef.on('value') → renderAll() → renderList(), which rebuilds this
+  // whole card list from scratch. On mobile that destroys and recreates the
+  // "+ zone" <input> the person is actively typing into, which is exactly
+  // what was closing the on-screen keyboard after every single entry. Here
+  // we snapshot which inline input (if any) was focused right before the
+  // rebuild, then hand focus back to its replacement afterwards so typing
+  // several zones in a row stays uninterrupted.
+  const active = document.activeElement;
+  let restoreFocus = null;
+  if(active && active.classList && active.classList.contains('inlineAddInput') && el.contains(active)){
+    restoreFocus = { courier: active.dataset.c, selStart: active.selectionStart, selEnd: active.selectionEnd, val: active.value };
+    // The actual bug behind "a copy of the name stays in the box": this
+    // snapshot can fire (via the Firebase echo of the very save we just
+    // triggered) BEFORE the browser has fully processed our own value='' —
+    // so it was capturing the OLD un-cleared text and reinstating it into the
+    // freshly rebuilt input a moment later. If this input just committed an
+    // Enter, force the restored value to empty no matter what was captured.
+    if(inlineAddJustCommitted && inlineAddJustCommitted.courier===restoreFocus.courier &&
+       (!active.value || normalize(active.value) === inlineAddJustCommitted.text)){
+      restoreFocus.val = ''; restoreFocus.selStart = 0; restoreFocus.selEnd = 0;
+    }
+  }
+  const allNames = Object.keys(data);
+  if(!allNames.length){ el.innerHTML = `<div class="empty">${t('noData')}</div>`; return; }
+  const regionScoped = visibleCouriers();
+  if(!regionScoped.length){ el.innerHTML = `<div class="empty">${t('listRegionEmpty')}</div>`; return; }
+  // Live text filter: show EVERY courier that has anything matching, not just
+  // one "best" answer — this is a loose "contains" filter (not the strict
+  // single-result search engine used on the Search tab), since the point
+  // here is "show me all 3 couriers whose data mentions الرحاب".
+  const searchEl = document.getElementById('listSearchInput');
+  const q = normalize((searchEl ? searchEl.value : '').trim());
+  const names = q ? regionScoped.filter(n=> normalize(n).includes(q) || data[n].some(z=> normalize(z).includes(q))) : regionScoped;
+  if(!names.length){ el.innerHTML = `<div class="empty">${t('listSearchEmpty')}</div>`; return; }
+  const filterActive = names.length !== allNames.length || q || !!document.getElementById('listRegionFilter').value;
+  const countLine = filterActive ? `<div class="hint" style="margin-bottom:8px;">${t('listShowing')} ${names.length} / ${allNames.length}</div>` : '';
+  // Show a matched courier first so it's immediately visible without scrolling.
+  if(highlightCourier && !names.includes(highlightCourier)) highlightCourier = null; // outside the chosen region/search
+  const ordered = highlightCourier ? [highlightCourier, ...names.filter(n=>n!==highlightCourier)] : names;
+  el.innerHTML = countLine + ordered.map(n=>`
+    <div class="courier-card${n===highlightCourier ? ' highlighted' : ''}" data-courier-card="${n}">
+      <div class="courier-name"><span>${n} (${data[n].length})</span>
+        <span class="cactions"><span class="cdots" data-c="${n}" role="button" aria-label="${t('editName')}">⋯</span><span class="del" data-c="${n}">✕</span></span></div>
+      <div class="cmenu" data-c="${n}" style="display:none;margin-bottom:6px;"><button class="btn btn-outline cedit-open" data-c="${n}" style="padding:6px 14px;font-size:13px;">✎ ${t('editName')}</button></div>
+      <div class="row cedit-row" data-c="${n}" style="display:none;margin-bottom:6px;">
+        <input type="text" class="cedit-input" data-c="${n}">
+        <button class="btn btn-primary cedit-save" data-c="${n}" style="flex:0 0 auto;padding:8px 14px;">${t('editSave')}</button>
+        <button class="btn btn-outline cedit-cancel" data-c="${n}" style="flex:0 0 auto;padding:8px 12px;">✕</button>
+      </div>
+      <div class="status cedit-status" data-c="${n}"></div>
+      <div>${data[n].map((z,i)=>`<span class="zonepill${(n===highlightCourier && z===highlightZone) || (q && normalize(z).includes(q)) ? ' highlighted' : ''}">${z} <button data-c="${n}" data-i="${i}">✕</button></span>`).join('')}</div>
+      <div class="row" style="margin-top:8px;">
+        <input type="text" class="inlineAddInput" data-c="${n}" list="zoneList" placeholder="+ zone">
+        <button class="btn btn-primary inlineAddBtn" data-c="${n}" style="flex:0 0 auto;padding:8px 14px;">+</button>
+      </div>
+    </div>`).join('');
+  if(highlightCourier){
+    const card = el.querySelector(`[data-courier-card="${CSS.escape(highlightCourier)}"]`);
+    if(card) card.scrollIntoView({behavior:'smooth', block:'start'});
+  }
+  el.querySelectorAll('.zonepill button').forEach(b=> b.onclick = async ()=>{
+    data[b.dataset.c].splice(+b.dataset.i,1); await saveData();
+  });
+  el.querySelectorAll('.del').forEach(d=> d.onclick = async ()=>{
+    if(confirm('Delete '+d.dataset.c+'?')){ delete data[d.dataset.c]; await saveData(); }
+  });
+  // Validate + update the local list synchronously, clear the box at once,
+  // then save in the background — same order as the other add forms.
+  // Nothing is cleared when the zone already exists (red flash + text selected).
+  function submitInline(c, inp){
+    const text = inp.value.trim();
+    if(!text) return;
+    if(!data[c]) data[c] = [];
+    if(data[c].some(z=>normalize(z)===normalize(text))){ flashInput(inp); return; }
+    data[c].push(text);
+    inlineAddJustCommitted = { courier: c, text: normalize(text) };
+    clearAfterSubmit(inp, text);
+    saveData().then(ok=>{
+      if(ok) return;
+      const a = data[c]; const k = a ? a.lastIndexOf(text) : -1; if(k>=0) a.splice(k,1); // nothing was saved — roll back
+      inlineAddJustCommitted = null;
+      renderList();
+      const cur = document.querySelector(`.inlineAddInput[data-c="${CSS.escape(c)}"]`);
+      if(cur && !cur.value) cur.value = text; // and give the text back
+    });
+  }
+  el.querySelectorAll('.inlineAddBtn').forEach(btn=> btn.onclick = ()=>{
+    const input = el.querySelector(`.inlineAddInput[data-c="${CSS.escape(btn.dataset.c)}"]`);
+    submitInline(btn.dataset.c, input);
+  });
+  el.querySelectorAll('.inlineAddInput').forEach(inp=>{
+    // A keystroke that ISN'T just the keyboard echoing the word we submitted
+    // means the person has moved on — stop forcing this field back to empty.
+    inp.addEventListener('input', ()=>{
+      if(inlineAddJustCommitted && inlineAddJustCommitted.courier===inp.dataset.c &&
+         inp.value && normalize(inp.value) !== inlineAddJustCommitted.text) inlineAddJustCommitted = null;
+    });
+    inp.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){
+        e.preventDefault(); // stop the keyboard's "Go/Enter" action from blurring the field
+        submitInline(inp.dataset.c, inp);
+      }
+    });
+  });
+
+  // ---- courier name: ⋯ menu → Edit ----
+  el.querySelectorAll('.cdots').forEach(b=> b.onclick = e=>{
+    e.stopPropagation();
+    const m = el.querySelector(`.cmenu[data-c="${CSS.escape(b.dataset.c)}"]`);
+    const wasOpen = m.style.display !== 'none';
+    el.querySelectorAll('.cmenu').forEach(x=> x.style.display='none');
+    m.style.display = wasOpen ? 'none' : '';
+  });
+  el.querySelectorAll('.cedit-open').forEach(b=> b.onclick = ()=>{
+    editingCourier = b.dataset.c; editingValue = b.dataset.c;
+    openCourierEdit(el, editingCourier, editingValue);
+  });
+  el.querySelectorAll('.cedit-input').forEach(inp=>{
+    inp.addEventListener('input', ()=>{ editingValue = inp.value; });
+    inp.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){ e.preventDefault(); renameCourier(inp.dataset.c, inp.value); }
+      else if(e.key==='Escape'){ cancelCourierEdit(el, inp.dataset.c); }
+    });
+  });
+  el.querySelectorAll('.cedit-save').forEach(b=> b.onclick = ()=>{
+    const inp = el.querySelector(`.cedit-input[data-c="${CSS.escape(b.dataset.c)}"]`);
+    renameCourier(b.dataset.c, inp.value);
+  });
+  el.querySelectorAll('.cedit-cancel').forEach(b=> b.onclick = ()=> cancelCourierEdit(el, b.dataset.c));
+  // A re-render (e.g. a sync from another device) must not throw away a
+  // half-typed rename — reopen it with what was typed.
+  if(editingCourier){
+    if(data[editingCourier]) openCourierEdit(el, editingCourier, editingValue, true);
+    else editingCourier = null;
+  }
+  if(restoreFocus){
+    const inp = el.querySelector(`.inlineAddInput[data-c="${CSS.escape(restoreFocus.courier)}"]`);
+    if(inp){
+      inp.value = restoreFocus.val;
+      inp.focus();
+      try{ inp.setSelectionRange(restoreFocus.selStart, restoreFocus.selEnd); }catch(e){}
+    }
+  }
+}
+
+// ---- Couriers-tab: rename a courier ----
+// Data is keyed by courier name, so a rename moves the zone list to the new key.
+function openCourierEdit(el, c, value, keepFocusState){
+  const sel = CSS.escape(c);
+  const menu = el.querySelector(`.cmenu[data-c="${sel}"]`);
+  const row = el.querySelector(`.cedit-row[data-c="${sel}"]`);
+  const inp = el.querySelector(`.cedit-input[data-c="${sel}"]`);
+  if(!row || !inp) return;
+  if(menu) menu.style.display = 'none';
+  row.style.display = '';
+  inp.value = value;
+  if(!keepFocusState){ inp.focus(); inp.select(); }
+}
+function cancelCourierEdit(el, c){
+  editingCourier = null; editingValue = '';
+  const sel = CSS.escape(c);
+  const row = el.querySelector(`.cedit-row[data-c="${sel}"]`);
+  const st = el.querySelector(`.cedit-status[data-c="${sel}"]`);
+  if(row) row.style.display = 'none';
+  if(st) st.textContent = '';
+}
+async function renameCourier(oldName, rawNew){
+  const el = document.getElementById('listCard');
+  const st = el.querySelector(`.cedit-status[data-c="${CSS.escape(oldName)}"]`);
+  const newName = (rawNew || '').trim();
+  // Firebase keys can't be empty or contain . # $ [ ] / — a name like that would make the whole save fail.
+  if(!newName || /[.#$\[\]\/]/.test(newName)){ if(st) st.textContent = '⚠ ' + t('editNameInvalid'); return false; }
+  if(newName === oldName){ cancelCourierEdit(el, oldName); return true; }
+  const backup = JSON.parse(JSON.stringify(data));
+  const zones = data[oldName] || [];
+  if(Object.prototype.hasOwnProperty.call(data, newName)){
+    if(!confirm(t('editNameExists'))) return false;
+    zones.forEach(z=>{ if(!data[newName].some(x=>normalize(x)===normalize(z))) data[newName].push(z); });
+  } else {
+    data[newName] = zones;
+  }
+  delete data[oldName];
+  if(selectedCourier === oldName) selectedCourier = newName;
+  const ci = document.getElementById('courierInput');
+  if(ci && ci.value.trim() === oldName) ci.value = newName;
+  editingCourier = null; editingValue = '';
+  renderList();
+  const ok = await saveData();
+  if(!ok){ data = backup; zoneIndexCache = null; renderList(); }
+  return ok;
+}
+// tapping anywhere outside a ⋯ menu closes it
+document.addEventListener('click', e=>{
+  if(e.target.closest && !e.target.closest('.cdots') && !e.target.closest('.cmenu')){
+    document.querySelectorAll('.cmenu').forEach(m=> m.style.display='none');
+  }
+});
+
+// ---- Couriers-tab search: find by courier name OR by zone/area name ----
+// renderList() reads #listSearchInput directly now, so "searching" is just
+// re-rendering. Live-filters as you type (a small debounce avoids rebuilding
+// the list on every single keystroke while typing fast).
+let listSearchDebounce = null;
+function doListSearch(){ renderList(); }
+document.getElementById('listSearchBtn').addEventListener('click', doListSearch);
+document.getElementById('listSearchInput').addEventListener('keydown', e=>{ if(e.key==='Enter') doListSearch(); });
+document.getElementById('listSearchInput').addEventListener('input', ()=>{
+  clearTimeout(listSearchDebounce);
+  listSearchDebounce = setTimeout(doListSearch, 120);
+});
+document.getElementById('listRegionFilter').addEventListener('change', doListSearch);
+
+// ================= region aliases =================
+// Regions-tab link form (sub-area → region). Same order as the other add
+// forms: validate, update locally, clear the boxes at once, save afterwards.
+// Nothing is cleared when a field is missing.
+function submitAlias(){
+  const subEl = document.getElementById('subAreaInput');
+  const regEl = document.getElementById('parentRegionInput');
+  const sub = subEl.value.trim(), region = regEl.value.trim();
+  const st = document.getElementById('aliasStatus');
+  if(!sub || !region){ st.textContent='⚠'; return; }
+  const had = Object.prototype.hasOwnProperty.call(aliases, sub), prev = aliases[sub];
+  aliases[sub] = region;
+  st.textContent='✅';
+  clearAfterSubmit(regEl, region);
+  clearAfterSubmit(subEl, sub); // last, so focus lands back on the first field
+  saveAliases().then(ok=>{
+    if(ok) return;
+    if(had) aliases[sub] = prev; else delete aliases[sub]; // nothing was saved — roll back
+    if(!subEl.value) subEl.value = sub;
+    if(!regEl.value) regEl.value = region;
+    st.textContent='⚠';
+  });
+}
+document.getElementById('addAliasBtn').addEventListener('click', submitAlias);
+['subAreaInput','parentRegionInput'].forEach(id=>{
+  document.getElementById(id).addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitAlias(); } });
+});
+function renderAliasList(activeRegion){
+  const el = document.getElementById('aliasListCard');
+  const subs = Object.keys(aliases);
+  if(!subs.length){ el.innerHTML = `<div class="empty">${t('noLinks')}</div>`; return; }
+  const byRegion = {};
+  subs.forEach(s=>{ (byRegion[aliases[s]] = byRegion[aliases[s]]||[]).push(s); });
+  const regions = activeRegion ? [activeRegion].filter(r=> byRegion[r]) : Object.keys(byRegion);
+  el.innerHTML = regions.map(region=>`
+    <div class="courier-card" data-region-card="${region}">
+      <div class="courier-name"><span>${region}</span></div>
+      <div>${byRegion[region].map(s=>`<span class="zonepill">${s} <button data-s="${s}">✕</button></span>`).join('')}</div>
+    </div>`).join('');
+  el.querySelectorAll('.zonepill button').forEach(b=> b.onclick = async ()=>{ delete aliases[b.dataset.s]; await saveAliases(); });
+}
+// Region navigator: quick pills across all known major regions so the admin
+// can jump between them instead of scrolling one long merged list — this is
+// purely a view over the existing aliases node, no new data structure.
+let activeRegionNav = '';
+function renderRegionNav(){
+  const card = document.getElementById('regionNavCard');
+  const row = document.getElementById('regionNavRow');
+  const regions = Array.from(new Set(Object.values(aliases)));
+  if(!regions.length){ card.style.display='none'; return; }
+  card.style.display='';
+  if(activeRegionNav && !regions.includes(activeRegionNav)) activeRegionNav='';
+  row.innerHTML = `<button class="tab${!activeRegionNav?' active':''}" data-region="" style="flex:0 0 auto;">${t('regionNavAll')}</button>` +
+    regions.map(r=>`<button class="tab${activeRegionNav===r?' active':''}" data-region="${r}" style="flex:0 0 auto;">${r}</button>`).join('');
+  row.querySelectorAll('button[data-region]').forEach(b=> b.onclick = ()=>{
+    activeRegionNav = b.dataset.region;
+    renderRegionNav();
+    renderAliasList(activeRegionNav || undefined);
+  });
+}
+// Compound "Region → Sub-area → Streets → responsible courier" save, in one
+// step (Known Issue #5), built entirely on the existing two nodes:
+//  - aliases[subArea] = region            (only if a sub-area was given)
+//  - data[courier] gets the streets pushed into it, PLUS the region/sub-area
+//    name itself so a bare search for "التجمع الأول" or "الياسمين" resolves
+//    straight to this courier too (matches the fallback search already used
+//    for region names — see findCouriersForZone(aliasHit.region) in doSearch).
+function submitRegionContent(){
+  const st = document.getElementById('rcStatus');
+  const subEl = document.getElementById('rcSubAreaInput');
+  const streetsEl = document.getElementById('rcStreetsInput');
+  const region = document.getElementById('rcRegionInput').value.trim();
+  const sub = subEl.value.trim();
+  const courier = document.getElementById('rcCourierInput').value.trim();
+  const streetsRaw = streetsEl.value.trim();
+  if(!region || !courier){ st.textContent='⚠'; return; }
+  const streets = streetsRaw.split(/[,،\n]/).map(z=>z.trim()).filter(Boolean);
+
+  // local changes first (synchronous), so the per-batch fields can clear at once
+  const aliasHad = sub ? Object.prototype.hasOwnProperty.call(aliases, sub) : false, aliasPrev = sub ? aliases[sub] : undefined;
+  const aliasChanged = !!sub && sub!==region;
+  if(aliasChanged) aliases[sub] = region;
+  if(!data[courier]) data[courier] = [];
+  const addedZones = [];
+  const addZoneIfNew = z=>{ if(z && !data[courier].some(x=>normalize(x)===normalize(z))){ data[courier].push(z); addedZones.push(z); } };
+  addZoneIfNew(region);         // so a bare region search resolves to this courier
+  if(sub) addZoneIfNew(sub);    // same, for the sub-area name
+  streets.forEach(addZoneIfNew);
+  if(!aliasChanged && !addedZones.length){ st.textContent='ℹ️'; return; } // nothing new — keep what was typed
+
+  st.textContent = `✅ ${addedZones.length}`;
+  activeRegionNav = region;
+  renderRegionNav();
+  renderAliasList(region);
+  // Region + courier stay — this form is meant for adding several batches of
+  // streets to the same region/courier in a row. Only the per-batch fields
+  // (sub-area, streets) clear, and focus goes back to streets.
+  clearAfterSubmit(subEl, sub);
+  clearAfterSubmit(streetsEl, streetsRaw);
+  (async ()=>{
+    let ok = true;
+    if(aliasChanged) ok = (await saveAliases()) && ok;
+    ok = (await saveData()) && ok;
+    if(ok) return;
+    if(aliasChanged){ if(aliasHad) aliases[sub] = aliasPrev; else delete aliases[sub]; }
+    addedZones.forEach(z=>{ const k = data[courier].lastIndexOf(z); if(k>=0) data[courier].splice(k,1); });
+    if(!subEl.value) subEl.value = sub;
+    if(!streetsEl.value) streetsEl.value = streetsRaw;
+    st.textContent='⚠';
+  })();
+}
+document.getElementById('addRegionContentBtn').addEventListener('click', submitRegionContent);
+['rcRegionInput','rcSubAreaInput','rcCourierInput'].forEach(id=>{
+  document.getElementById(id).addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitRegionContent(); } });
+});
+// The streets field is a <textarea> (multi-line) — Enter should add a new
+// line for a second street, not submit; use Ctrl/Cmd+Enter to submit instead.
+document.getElementById('rcStreetsInput').addEventListener('keydown', e=>{
+  if(e.key==='Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); submitRegionContent(); }
+});
+
+// ================= search + missed logging =================
+function findRegionForSubArea(q){
+  let best=null;
+  Object.keys(aliases).forEach(sub=>{
+    const nsub = normalize(sub);
+    if(nsub.includes(q) || q.includes(nsub)){
+      if(!best || nsub.length > normalize(best.sub).length) best = { sub, region: aliases[sub] };
+    }
+  });
+  if(best) return best;
+  // Queries containing a number are handled by the numeric range logic in
+  // findCouriersForZone, not by fuzzy text matching here (a number like "31"
+  // can look deceptively "close" to unrelated text and cause wrong matches).
+  if(/\d/.test(q)) return null;
+  // fuzzy fallback for sub-areas too (STT mis-hearing) — skip range-pattern
+  // entries, which must only ever match through the numeric range logic.
+  if(q.length < FUZZY_MIN_LEN) return best; // too short to safely fuzzy-match at all
+  let bestScore = Infinity;
+  Object.keys(aliases).forEach(sub=>{
+    if(parseRangeZone(sub)) return;
+    const score = fuzzyScore(q, normalize(sub));
+    const allowed = Math.max(1, Math.round(q.length*FUZZY_RATIO));
+    if(score <= allowed && score < bestScore){ bestScore = score; best = { sub, region: aliases[sub] }; }
+  });
+  return best;
+}
+let zoneIndexCache = null; // { forData, entries: [{courier, zone, normZone, rangeParsed}] }
+function getZoneIndex(){
+  if(zoneIndexCache && zoneIndexCache.forData === data) return zoneIndexCache.entries;
+  const entries = [];
+  Object.keys(data).forEach(courier=>{
+    data[courier].forEach(zone=>{
+      entries.push({ courier, zone, normZone: normalize(zone), rangeParsed: parseRangeZone(zone) });
+    });
+  });
+  zoneIndexCache = { forData: data, entries };
+  return entries;
+}
+function findCouriersForZone(qOrRegion){
+  const q = normalize(qOrRegion);
+  let matches=[];
+  const index = getZoneIndex(); // [{courier, zone, normZone, rangeParsed}], cached per `data` snapshot
+  // 1) exact/substring matches (fast path, most common case)
+  let exactMatches = [];
+  index.forEach(({courier, zone, normZone: nz})=>{
+    if(nz === q){ exactMatches.push({courier, zone}); return; } // literally the same text — always the most confident hit
+    if(nz.includes(q)){ matches.push({courier, zone}); return; } // zone contains the whole query — always trustworthy
+    // The other direction (query contains this zone as a substring) is only
+    // trustworthy when every number in the query is also present in the
+    // zone text — otherwise a short region/sub-area name ("الرحاب ١") can
+    // shadow a much more specific numeric-range query ("...عمارة 113")
+    // just because it happens to be a text-prefix of what was said.
+    if(q.includes(nz)){
+      const qNums = q.match(/\d+/g) || [];
+      const nzNums = nz.match(/\d+/g) || [];
+      if(qNums.every(n=>nzNums.includes(n))) matches.push({courier, zone});
+    }
+  });
+  // An exact match wins outright over broader "contains" hits — this is what
+  // lets "الياسمين" resolve straight to the courier whose zone IS "الياسمين",
+  // without needing to also say "شارع" to beat "شارع الياسمين" on a coin flip.
+  if(exactMatches.length) return exactMatches;
+  if(matches.length) return matches;
+
+  // 2) numeric range zones ("فردي شارع الثورة من 99 ل 121", "مصطفى النحاس من 2 ل 52")
+  let rangeMatches = [];
+  index.forEach(({courier, zone, rangeParsed})=>{
+    if(rangeParsed && matchesRangeZone(qOrRegion, zone, rangeParsed)) rangeMatches.push({courier, zone});
+  });
+  if(rangeMatches.length){
+    const distinctCouriers = new Set(rangeMatches.map(m=>m.courier));
+    if(distinctCouriers.size > 1){
+      // Same number, same entity type, but more than one area's range covers
+      // it (e.g. two different sub-areas both happen to span 1-65). Try to
+      // narrow using whatever's left of the query (a region/sub-area name)
+      // against each candidate's OTHER, non-range zones — never guess blindly.
+      const qParts = q.split(/(\d+)/); // alternating text/number/text/...
+      for(let i=qParts.length-1;i>=0;i--){
+        if(/^\d+$/.test(qParts[i])){ qParts[i]=' '; break; } // remove only the LAST number
+      }
+      const restWords = qParts.join('').split(' ')
+        .filter(Boolean).filter(w=>!TYPE_WORDS.includes(stripAl(w)) && !FILLER_WORDS.includes(stripAl(w)));
+      if(restWords.length){
+        const scored = rangeMatches.map(m=>{
+          let score = 0;
+          data[m.courier].forEach(z=>{
+            if(parseRangeZone(z)) return; // compare against plain area/street names only
+            const zWords = normalize(z).split(' ');
+            restWords.forEach(w=>{ if(zWords.some(zw=> zw===w || zw.startsWith(w) || w.startsWith(zw))) score++; });
+          });
+          return { m, score };
+        });
+        const maxScore = Math.max(...scored.map(s=>s.score));
+        if(maxScore > 0){
+          const top = scored.filter(s=>s.score===maxScore).map(s=>s.m);
+          if(top.length < rangeMatches.length) rangeMatches = top;
+        }
+      }
+    }
+    return rangeMatches; // may still hold >1 distinct couriers — doSearch
+                          // shows them as candidates rather than picking one
+  }
+
+  // 3) fuzzy fallback — tolerate small speech-recognition mistakes
+  //    (e.g. "عمارات ملسا"/"عمارات بلسا" still finding "عمارات مليسا").
+  //    Range-pattern zones ("فردي ... من 99 ل 121") are excluded here — they
+  //    already had their proper chance in step 2, and a generic word-fuzzy
+  //    compare would wrongly ignore the actual number in the query. Queries
+  //    containing a digit skip this step entirely for the same reason.
+  if(/\d/.test(q)) return matches;
+  if(q.length < FUZZY_MIN_LEN) return matches; // too short to safely fuzzy-match at all
+  let bestScore = Infinity, bestMatch = null;
+  index.forEach(({courier, zone, normZone: nz, rangeParsed})=>{
+    if(rangeParsed) return;
+    const score = fuzzyScore(q, nz);
+    const allowed = Math.max(1, Math.round(q.length*FUZZY_RATIO));
+    if(score <= allowed && score < bestScore){ bestScore = score; bestMatch = {courier, zone}; }
+  });
+  if(bestMatch) matches.push(bestMatch);
+  return matches;
+}
+// ---------- optional region-filtered search (Known Issue #4) ----------
+// Streets can repeat across major regions (e.g. "معز الدولة" exists both in
+// مدينة نصر and في التجمع الأول). We don't have a dedicated per-street region
+// field in the data model, so we reuse the EXISTING sub-area→region alias
+// table (Section E) to guess which region a given zone label belongs to.
+function getRegionForZoneLabel(zoneLabel){
+  const nz = normalize(zoneLabel);
+  let best = null;
+  Object.keys(aliases).forEach(sub=>{
+    const nsub = normalize(sub);
+    if(nz.includes(nsub) || nsub.includes(nz)){
+      if(!best || nsub.length > normalize(best).length) best = sub;
+    }
+  });
+  return best ? aliases[best] : null;
+}
+// Narrow a match list down to a chosen major region. If NONE of the matches
+// carry a resolvable region tag yet (aliases not filled in for that street),
+// we fall back to the untouched list instead of hiding a real result —
+// the filter is meant to disambiguate, not to hide data the admin hasn't
+// tagged yet.
+function filterMatchesByRegion(matches, regionFilter){
+  if(!regionFilter) return matches;
+  const nf = normalize(regionFilter);
+  const tagged = matches.filter(m=>{
+    if(normalize(m.zone)===nf) return true; // the zone itself IS the region
+    const tag = getRegionForZoneLabel(m.zone);
+    return tag && normalize(tag)===nf;
+  });
+  return tagged.length ? tagged : matches;
+}
+function renderRegionFilterOptions(){
+  const regions = Array.from(new Set(Object.values(aliases))).sort((a,b)=> a.localeCompare(b,'ar'));
+  const opts = regions.map(r=>`<option value="${r}">${r}</option>`).join('');
+  const sel = document.getElementById('regionFilterSelect');
+  if(sel){
+    const prev = sel.value;
+    sel.innerHTML = `<option value="">${t('regionFilterAll')}</option>` + opts;
+    if(regions.includes(prev)) sel.value = prev;
+  }
+  const lsel = document.getElementById('listRegionFilter');
+  if(lsel){
+    const prev = lsel.value;
+    lsel.innerHTML = `<option value="">${t('regionFilterAll')}</option>` + opts +
+      `<option value="__none__">${t('listRegionNone')}</option>`;
+    if(regions.includes(prev) || prev==='__none__') lsel.value = prev;
+  }
+}
+
+// ---- Couriers-tab region filter ----
+// A zone "belongs" to a region if it IS the region name, or it's (or mentions)
+// a sub-area that the alias table links to that region. Same alias table the
+// Search tab's filter uses — no new data. Deliberately one-directional: a
+// short zone that merely happens to sit inside some sub-area's name is not
+// treated as belonging to it.
+function zoneBelongsToRegion(zone, region){
+  const nz = normalize(zone), nr = normalize(region);
+  if(nz === nr) return true;
+  return Object.keys(aliases).some(sub=>{
+    if(normalize(aliases[sub]) !== nr) return false;
+    const ns = normalize(sub);
+    return ns.length >= 2 && (nz === ns || nz.includes(ns));
+  });
+}
+function zoneBelongsToAnyRegion(zone){
+  const regions = new Set(Object.values(aliases));
+  for(const r of regions){ if(zoneBelongsToRegion(zone, r)) return true; }
+  return false;
+}
+// Couriers visible under the Couriers tab's current region choice.
+function visibleCouriers(){
+  const el = document.getElementById('listRegionFilter');
+  const sel = el ? el.value : '';
+  const names = Object.keys(data);
+  if(!sel) return names;
+  if(sel === '__none__') return names.filter(n=> !data[n].some(zoneBelongsToAnyRegion));
+  return names.filter(n=> data[n].some(z=> zoneBelongsToRegion(z, sel)));
+}
+function logMiss(term){
+  const key = normalize(term).replace(/[.#$\[\]\/]/g,'_').slice(0,120) || 'empty';
+  const ref = missedRef.child(key);
+  ref.transaction(cur=>{
+    if(cur){ cur.count = (cur.count||1)+1; cur.lastSeen = Date.now(); cur.term = term; return cur; }
+    return { term, count:1, firstSeen: Date.now(), lastSeen: Date.now() };
+  });
+}
+// `onSpeechDone` is optional: when given (continuous mode passes it), it
+// fires exactly once, right after the spoken answer finishes (or immediately
+// if nothing was said), so the caller knows precisely when it's safe to
+// listen again — see Known Issue #2 fix in the continuous-mode block below.
+function doSearch(query, onSpeechDone){
+  const resEl = document.getElementById('searchResult');
+  query = expandColloquialNumbers(query); // "تلات سبعات" -> "777"
+  const q = normalize(query);
+  if(!q){ resEl.innerHTML=''; if(onSpeechDone) onSpeechDone(); return; }
+
+  const regionFilterEl = document.getElementById('regionFilterSelect');
+  const regionFilter = regionFilterEl ? regionFilterEl.value : '';
+
+  let directMatches = findCouriersForZone(query);
+  if(regionFilter) directMatches = filterMatchesByRegion(directMatches, regionFilter);
+  let aliasHit = findRegionForSubArea(q);
+  // If a region filter is active and the resolved alias points at a
+  // DIFFERENT major region, it's out of scope for this filtered search.
+  if(aliasHit && regionFilter && normalize(aliasHit.region)!==normalize(regionFilter)) aliasHit = null;
+
+  if(directMatches.length){
+    // Task 2 §7: never guess a winner between two DIFFERENT couriers whose
+    // ranges both cover this number — show what's known instead.
+    const distinctCouriers = Array.from(new Set(directMatches.map(m=>m.courier)));
+    if(distinctCouriers.length > 1){
+      resEl.innerHTML = `<div class="result notfound"><div class="small">أكتر من مندوب محتمل — حدد المنطقة عشان أفرق بينهم:</div>` +
+        directMatches.map(m=>`<div class="small">• <b>${m.courier}</b> — ${m.zone}</div>`).join('') + `</div>`;
+      speakAr(`فيه أكتر من مندوب محتمل، حدد المنطقة أكتر`, onSpeechDone);
+      return;
+    }
+    const primary = directMatches[0];
+    if(fieldMode){
+      resEl.innerHTML = `<div class="result found"><div class="big">${primary.courier}</div></div>`;
+      speakAr(primary.courier, onSpeechDone);
+    } else {
+      const belongsLine = aliasHit ? `<div class="small">"${aliasHit.sub}" تابعة لمنطقة <b>${aliasHit.region}</b></div>` : '';
+      resEl.innerHTML = `<div class="result found">${belongsLine}<div class="big">${primary.courier}</div><div class="small">مسؤول عن "${primary.zone}"</div></div>`;
+      speakAr(aliasHit ? `${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}، تابع مندوب ${primary.courier}` : `${primary.courier}، ${primary.zone}`, onSpeechDone);
+    }
+    return;
+  }
+  if(aliasHit){
+    let regionMatches = findCouriersForZone(aliasHit.region);
+    if(regionFilter) regionMatches = filterMatchesByRegion(regionMatches, regionFilter);
+    if(regionMatches.length){
+      const distinctCouriers = Array.from(new Set(regionMatches.map(m=>m.courier)));
+      if(distinctCouriers.length > 1){
+        resEl.innerHTML = `<div class="result notfound"><div class="small">أكتر من مندوب محتمل — حدد المنطقة عشان أفرق بينهم:</div>` +
+          regionMatches.map(m=>`<div class="small">• <b>${m.courier}</b> — ${m.zone}</div>`).join('') + `</div>`;
+        speakAr(`فيه أكتر من مندوب محتمل، حدد المنطقة أكتر`, onSpeechDone);
+        return;
+      }
+      const primary = regionMatches[0];
+      if(fieldMode){
+        resEl.innerHTML = `<div class="result found"><div class="big">${primary.courier}</div></div>`;
+        speakAr(primary.courier, onSpeechDone);
+      } else {
+        resEl.innerHTML = `<div class="result found"><div class="small">"${aliasHit.sub}" تابعة لمنطقة <b>${aliasHit.region}</b></div><div class="big">${primary.courier}</div><div class="small">مسؤول عن "${primary.zone}"</div></div>`;
+        speakAr(`${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}، تابع مندوب ${primary.courier}`, onSpeechDone);
+      }
+      return;
+    } else {
+      resEl.innerHTML = fieldMode
+        ? `<div class="result notfound"><div class="big">غير معروف</div></div>`
+        : `<div class="result notfound"><div class="small">"${aliasHit.sub}" تابعة لمنطقة <b>${aliasHit.region}</b></div><div class="big">لسه مفيش مندوب متأكد لـ ${aliasHit.region}</div></div>`;
+      speakAr(fieldMode ? 'غير معروف' : `${aliasHit.sub} تابعة لمنطقة ${aliasHit.region}`, onSpeechDone);
+      logMiss(query);
+      return;
+    }
+  }
+  resEl.innerHTML = `<div class="result notfound"><div class="big">غير معروف</div></div>`;
+  speakAr('غير معروف', onSpeechDone);
+  logMiss(query);
+}
+document.getElementById('searchBtn').addEventListener('click', ()=> doSearch(document.getElementById('searchInput').value));
+document.getElementById('searchInput').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(e.target.value); });
+
+// ---- live "all matches" list (browse mode) ----
+// This is deliberately separate from doSearch's strict/confident matching —
+// doSearch answers "who is responsible here" with one trustworthy name (or
+// "unknown"); this instead answers "show me everything with 'رحاب' in it" so
+// three couriers each holding a differently-worded Rehab zone all show up
+// together, letting the person pick the one they actually meant.
+const LIVE_RESULTS_MIN_LEN = 2, LIVE_RESULTS_DEBOUNCE_MS = 90, LIVE_RESULTS_LIMIT = 30;
+let liveResultsTimer = null;
+function renderLiveResults(raw){
+  const wrap = document.getElementById('liveResultsWrap');
+  const list = document.getElementById('liveResultsList');
+  const label = document.getElementById('liveResultsLabel');
+  const q = normalize(expandColloquialNumbers(raw||''));
+  if(q.length < LIVE_RESULTS_MIN_LEN){ wrap.style.display='none'; list.innerHTML=''; return; }
+  const regionFilterEl = document.getElementById('regionFilterSelect');
+  const regionFilter = regionFilterEl ? regionFilterEl.value : '';
+  const byCourier = new Map();
+  getZoneIndex().forEach(({courier, zone, normZone})=>{
+    if(!normZone.includes(q)) return;
+    if(regionFilter && !zoneBelongsToRegion(zone, regionFilter)) return;
+    if(!byCourier.has(courier)) byCourier.set(courier, []);
+    byCourier.get(courier).push(zone);
+  });
+  if(!byCourier.size){ wrap.style.display='none'; list.innerHTML=''; return; }
+  const rows = Array.from(byCourier.entries()).slice(0, LIVE_RESULTS_LIMIT);
+  label.textContent = `${t('liveResultsAll')} "${raw.trim()}" (${byCourier.size})`;
+  list.innerHTML = rows.map(([courier, zones])=>`
+    <div class="courier-card" style="padding:10px 14px;">
+      <div class="courier-name" style="margin-bottom:4px;"><span>${courier}</span></div>
+      <div>${zones.map(z=>`<span class="zonepill live-result-pill" data-zone="${z.replace(/"/g,'&quot;')}" style="cursor:pointer;">${z}</span>`).join('')}</div>
+    </div>`).join('');
+  list.querySelectorAll('.live-result-pill').forEach(p=> p.onclick = ()=>{
+    document.getElementById('searchInput').value = p.dataset.zone;
+    doSearch(p.dataset.zone);
+  });
+  wrap.style.display = '';
+}
+document.getElementById('searchInput').addEventListener('input', e=>{
+  clearTimeout(liveResultsTimer);
+  const val = e.target.value;
+  liveResultsTimer = setTimeout(()=> renderLiveResults(val), LIVE_RESULTS_DEBOUNCE_MS);
+});
+document.getElementById('regionFilterSelect').addEventListener('change', ()=> renderLiveResults(document.getElementById('searchInput').value));
+
+// ---- Field Mode toggle (persisted per device) ----
+let fieldMode = false;
+try{ fieldMode = localStorage.getItem('field-mode')==='1'; }catch(e){}
+const fieldModeToggle = document.getElementById('fieldModeToggle');
+function applyFieldModeUI(){ fieldModeToggle.setAttribute('aria-checked', fieldMode ? 'true' : 'false'); }
+applyFieldModeUI();
+fieldModeToggle.addEventListener('click', ()=>{
+  fieldMode = !fieldMode;
+  try{ localStorage.setItem('field-mode', fieldMode ? '1' : '0'); }catch(e){}
+  applyFieldModeUI();
+});
+
+// ================= missed searches tab (always Arabic — real users search in Egyptian Arabic) =================
+function renderMissed(){
+  missedRef.once('value').then(snap=>{
+    const val = snap.val() || {};
+    const rows = Object.values(val).sort((a,b)=> b.count - a.count);
+    const wrap = document.getElementById('missedTableWrap');
+    if(!rows.length){ wrap.innerHTML = `<div class="empty">لا توجد عمليات بحث فاشلة مسجلة</div>`; return; }
+    wrap.innerHTML = `<table class="missTable" dir="rtl"><thead><tr><th>المصطلح</th><th>العدد</th><th>آخر ظهور</th><th></th></tr></thead><tbody>
+      ${rows.map(r=>`<tr><td>${r.term}</td><td class="count">${r.count}</td><td>${new Date(r.lastSeen).toLocaleDateString()}</td><td><button class="del" data-term="${r.term}" style="color:var(--danger);background:none;border:none;cursor:pointer;">✕</button></td></tr>`).join('')}
+      </tbody></table>`;
+    wrap.querySelectorAll('.del').forEach(b=> b.onclick = ()=>{
+      const key = normalize(b.dataset.term).replace(/[.#$\[\]\/]/g,'_').slice(0,120);
+      missedRef.child(key).remove().then(renderMissed);
+    });
+    window._missedRows = rows;
+  });
+}
+document.getElementById('clearMissedBtn').addEventListener('click', async ()=>{
+  const st = document.getElementById('missedClearStatus');
+  if(!confirm(t('clearMissedConfirm'))) return;
+  try{
+    await missedRef.remove(); // only clears /missed-searches — couriers & regions untouched
+    st.textContent = '✅';
+    renderMissed();
+  }catch(e){ st.textContent = '⚠ ' + e.message; }
+});
+document.getElementById('copyMissedBtn').addEventListener('click', ()=>{
+  const rows = window._missedRows || [];
+  const box = document.getElementById('missedCopyBox');
+  box.style.display='block';
+  box.value = "المصطلح\tالعدد\tآخر ظهور\n" + rows.map(r=>`${r.term}\t${r.count}\t${new Date(r.lastSeen).toLocaleDateString()}`).join('\n');
+  box.select();
+  try{ document.execCommand('copy'); }catch(e){}
+});
+
+// ================= excel import/export (unified template) =================
+document.getElementById('importBtn').addEventListener('click', ()=>{
+  if(!xlsxLoaded){ document.getElementById('importStatus').textContent='...'; setTimeout(()=>document.getElementById('importBtn').click(), 400); return; }
+  const file = document.getElementById('excelFile').files[0];
+  const st = document.getElementById('importStatus');
+  if(!file){ st.textContent='⚠'; return; }
+  const reader = new FileReader();
+  reader.onload = async (e)=>{
+    try{
+      const wb = XLSX.read(e.target.result, {type:'array'});
+      let cCount=0, zCount=0, aCount=0;
+      // Find the couriers sheet: prefer one literally named "Couriers", else
+      // any sheet whose name mentions courier/مندوب/مناديب, else just the first sheet.
+      const courierSheetName = wb.SheetNames.find(n=> n==='Couriers')
+        || wb.SheetNames.find(n=> /courier|مندوب|مناديب/i.test(n))
+        || wb.SheetNames[0];
+      // Regions sheet: literally "Regions", else mentions region/منطقة, else the
+      // next sheet after the couriers one (if any).
+      const courierIdx = wb.SheetNames.indexOf(courierSheetName);
+      const regionSheetName = wb.SheetNames.find(n=> n==='Regions')
+        || wb.SheetNames.find(n=> /region|منطقة|مناطق/i.test(n) && n!==courierSheetName)
+        || wb.SheetNames[courierIdx+1] || null;
+
+      if(courierSheetName){
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[courierSheetName], {header:1});
+        rows.forEach((row,i)=>{
+          if(i===0) return;
+          const courier = (row[0]||'').toString().trim();
+          const zoneCell = (row[1]||'').toString().trim();
+          if(!courier || !zoneCell) return;
+          const zones = zoneCell.split(/[,،\n]/).map(z=>z.trim()).filter(Boolean);
+          if(!data[courier]) data[courier]=[];
+          cCount++;
+          zones.forEach(z=>{ if(!data[courier].some(x=>normalize(x)===normalize(z))){ data[courier].push(z); zCount++; } });
+        });
+      }
+      if(regionSheetName && wb.Sheets[regionSheetName]){
+        const rows2 = XLSX.utils.sheet_to_json(wb.Sheets[regionSheetName], {header:1});
+        rows2.forEach((row,i)=>{
+          if(i===0) return;
+          const sub = (row[0]||'').toString().trim();
+          const region = (row[1]||'').toString().trim();
+          if(!sub || !region) return;
+          aliases[sub] = region; aCount++;
+        });
+      }
+      await saveData(); await saveAliases();
+      st.textContent = `✅ ${cCount} couriers, ${zCount} zones, ${aCount} region links (sheets used: ${courierSheetName}${regionSheetName ? ', '+regionSheetName : ''})`;
+    }catch(err){ st.textContent = '⚠ ' + err.message; }
+  };
+  reader.readAsArrayBuffer(file);
+});
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const st = document.getElementById('exportStatus');
+  if(!xlsxLoaded){ ensureXlsxLoaded(); setTimeout(()=>document.getElementById('exportBtn').click(), 500); return; }
+  // Wait for the real Firebase snapshot before exporting — otherwise this can
+  // dump a stale/empty local cache instead of the actual current data.
+  if(!dataReady || !aliasesReady){
+    st.textContent = t('exportWaiting');
+    setTimeout(()=>document.getElementById('exportBtn').click(), 400);
+    return;
+  }
+  try{
+    const wb = XLSX.utils.book_new();
+    const rows1 = [['Courier','Zones']];
+    Object.keys(data).forEach(c=> rows1.push([c, (data[c]||[]).join(', ')]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows1), 'Couriers');
+    const rows2 = [['SubArea','ParentRegion']];
+    Object.keys(aliases).forEach(s=> rows2.push([s, aliases[s]]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows2), 'Regions');
+    XLSX.writeFile(wb, 'directory_template.xlsx');
+    st.textContent = `✅ ${Object.keys(data).length} couriers, ${Object.keys(aliases).length} region links`;
+  }catch(err){
+    st.textContent = '⚠ ' + t('exportError') + ': ' + err.message;
+  }
+});
+
+// ================= speech =================
+function speak(text){
+  try{
+    if(!('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang==='ar' ? 'ar-SA' : 'en-US';
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  }catch(e){}
+}
+// Search results are always spoken in Arabic — real field users search in
+// Egyptian colloquial Arabic regardless of the UI language toggle.
+// Cache the best available Arabic voice once the browser reports its voice list
+// (on Android this can arrive asynchronously via onvoiceschanged).
+let bestArabicVoice = null;
+function pickBestArabicVoice(){
+  if(!('speechSynthesis' in window)) return null;
+  const voices = speechSynthesis.getVoices() || [];
+  // Prefer a true Egyptian voice if the device/browser has one installed.
+  // On-device voices start speaking immediately; "network" voices (localService=false) need a
+  // round trip first, which is pure added delay — so prefer local ones, Egyptian first.
+  const eg = voices.filter(v=> /^ar[-_]eg/i.test(v.lang));
+  const ar = voices.filter(v=> /^ar/i.test(v.lang));
+  return eg.find(v=> v.localService) || ar.find(v=> v.localService) || eg[0] || ar[0] || null;
+}
+if('speechSynthesis' in window){
+  bestArabicVoice = pickBestArabicVoice();
+  speechSynthesis.onvoiceschanged = ()=>{ bestArabicVoice = pickBestArabicVoice(); updateVoiceInfo(); };
+}
+function updateVoiceInfo(){
+  const el = document.getElementById('voiceInfo');
+  if(!el) return;
+  if(bestArabicVoice){
+    const isEgyptian = /^ar[-_]eg/i.test(bestArabicVoice.lang);
+    el.textContent = isEgyptian
+      ? `🔊 صوت مصري متاح: ${bestArabicVoice.name}`
+      : `🔊 صوت متاح: ${bestArabicVoice.name} (${bestArabicVoice.lang}) — مش مصري لسه`;
+  } else {
+    el.textContent = '';
+  }
+}
+updateVoiceInfo();
+// `ttsActive` / `lastSpokenNormalized` let continuous mode tell "the device
+// hearing its own answer" apart from "the person asking a new question" —
+// see the continuous-mode block below for how they're used.
+//
+// NOTE — reverted: an earlier version split each answer into single-word
+// utterances with brief real gaps between them, specifically to give the
+// mic clean TTS-free windows for barge-in (native speechSynthesis audio
+// isn't visible to the browser's echo-cancellation the way WebRTC audio is,
+// so a live listening gap was the only way to get a clean shot). That
+// approach broke TTS entirely — rapid chained speechSynthesis.speak() calls
+// are a known trigger for Chrome's speech queue going silently silent and
+// never producing audio at all. Restoring reliable speech (Priority 1) comes
+// first, so this is back to one plain utterance per answer; ttsActive is
+// simply true for the whole time it's sounding. Barge-in during that window
+// relies entirely on looksLikeEcho() below and is a lower priority to
+// revisit once TTS itself is confirmed solid again.
+let ttsActive = false, lastSpokenNormalized = '', ttsGraceTimer = null, ttsSeqId = 0;
+function cancelSpeaking(){
+  closeSpoken();
+  ttsSeqId++; // invalidates any chunk still waiting on its own setTimeout/onend
+  try{ speechSynthesis.cancel(); }catch(e){}
+  ttsActive = false;
+  logDebugSafe('CANCEL', 'speech cancelled');
+}
+// logDebug is declared further down (after this point in the file) but, being
+// a function declaration, is hoisted and safe to call here at runtime.
+function logDebugSafe(tag, msg){ try{ logDebug(tag, msg); }catch(e){} }
+// ---------- continuous-mode live diagnostics ----------
+// Toggleable panel so real-device testing can show us exactly what the
+// recognizer hears (and how we classified it) during TTS playback, instead
+// of us guessing blind between rounds of "still doesn't work".
+const contDebugToggle = document.getElementById('contDebugToggle');
+const contDebugLog = document.getElementById('contDebugLog');
+contDebugToggle.addEventListener('change', ()=>{ contDebugLog.style.display = contDebugToggle.checked ? '' : 'none'; });
+function logDebug(tag, msg){
+  if(!contDebugToggle.checked) return;
+  const t0 = (performance.now()/1000).toFixed(2);
+  contDebugLog.textContent += `[${t0}s] ${tag}: ${msg}\n`;
+  const lines = contDebugLog.textContent.split('\n');
+  if(lines.length > 60) contDebugLog.textContent = lines.slice(-60).join('\n');
+  contDebugLog.scrollTop = contDebugLog.scrollHeight;
+}
+// ---------- device voice (fast path) ----------
+// Output-speed notes:
+//  * SPEECH_RATE slightly above normal so the name/answer finishes sooner.
+//  * speechSynthesis.cancel() right before speak() adds delay (and is a known cause of dropped
+//    speech on Android Chrome), so it is only called when something is actually queued/speaking.
+//  * The first speak() of a session has a cold start while the engine loads; primeSpeech() pays
+//    that cost silently on the first tap instead of on the first real answer.
+//  * The utterance is kept in a global so it can't be garbage-collected mid-speech (another
+//    Chrome quirk that silently drops onend and strands the mic logic).
+const SPEECH_RATE = 1.1;
+let activeUtterance = null, speechPrimed = false;
+function primeSpeech(){
+  if(speechPrimed || !('speechSynthesis' in window)) return;
+  speechPrimed = true;
+  try{
+    const u = new SpeechSynthesisUtterance('ا');
+    u.volume = 0; u.rate = 2;
+    if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; } else { u.lang = 'ar-EG'; }
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+document.addEventListener('pointerdown', primeSpeech, { once:true });
+function speakAr(text, onDone){
+  const mySeq = ++ttsSeqId;
+  lastSpokenNormalized = normalize(text);
+  openSpoken(text);
+  logDebugSafe('SPEAK', `"${text}" (seq ${mySeq})`);
+  const finish = ()=>{
+    if(mySeq !== ttsSeqId) return; // superseded by a newer answer or a barge-in cancel
+    closeSpoken();
+    logDebugSafe('SPEAK', `done (seq ${mySeq})`);
+    clearTimeout(ttsGraceTimer);
+    // Short grace period — mobile audio hardware/STT can lag a beat behind
+    // the moment playback actually stops.
+    ttsGraceTimer = setTimeout(()=>{ if(mySeq===ttsSeqId) ttsActive=false; }, 400);
+    if(onDone) onDone();
+  };
+  try{
+    if(!('speechSynthesis' in window)){ finish(); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; }
+    else { u.lang = 'ar-EG'; }
+    u.rate = SPEECH_RATE; u.pitch = 1; u.volume = 1;
+    u.onstart = ()=>{ if(mySeq===ttsSeqId){ ttsActive = true; logDebugSafe('SPEAK', `audio started${lastCommitAt ? ' — ' + (Date.now() - lastCommitAt) + 'ms after the answer was decided' : ''}`); } };
+    u.onend = finish; u.onerror = finish;
+    activeUtterance = u;
+    if(speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  }catch(e){ finish(); }
+}
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+// ---------- low-latency commit (speed request) ----------
+// The browser's SpeechRecognition only marks a result `isFinal` after it
+// decides the person has stopped talking — which in practice means waiting
+// for an extra few hundred ms to over a second of trailing silence on TOP of
+// however long they took to speak. That's the single biggest source of felt
+// delay in the whole pipeline (everything else — search, TTS start — is now
+// sub-millisecond to a few ms). Instead of waiting for that official signal,
+// we commit to an interim guess once it's stopped changing for a short beat
+// (LOW_LATENCY_DEBOUNCE_MS) and search immediately. If the interim guess was
+// wrong and the real final differs, we just search again with the corrected
+// text — a rare, minor "flicker" that's a good trade for cutting the typical
+// wait roughly in half or more. Tune the debounce down for more speed /
+// more risk of firing on a mid-sentence pause, or up for the opposite.
+const LOW_LATENCY_DEBOUNCE_MS = 70;
+
+// ---------- capture accuracy ----------
+// The browser's STT hands back several ranked guesses per phrase. Its #1 pick
+// is often off by a letter or two while the right name sits at #2-#5. We
+// can't improve the raw audio model, but we CAN use what the STT engine
+// can't know — the real list of couriers/zones/regions — to choose between
+// its own guesses. Because matching is strict (no hallucinated matches), an
+// alternative that lands exactly on real data is far more trustworthy than
+// the top guess that lands on nothing.
+const STT_ALTERNATIVES = 5;
+// finalMode=true : the phrase is finished — exact zone/alias hits and numeric
+//                  range hits both count.
+// finalMode=false: provisional (mid-speech) — only accept a plain-name exact
+//                  hit that isn't merely the start of a longer name
+//                  ("الرحاب 1" vs "الرحاب 1 الجزء التاني") and never a
+//                  numeric query, because a half-said number is a valid but
+//                  WRONG number ("عمارة 1" on the way to "عمارة 13").
+function isConfidentMatch(t, finalMode){
+  const x = expandColloquialNumbers(t);
+  const q = normalize(x);
+  if(!q) return false;
+  const index = getZoneIndex();
+  if(/\d/.test(q)){
+    if(!finalMode) return false;
+    return index.some(e=> e.normZone === q) ||
+           index.some(e=> e.rangeParsed && matchesRangeZone(x, e.zone, e.rangeParsed));
+  }
+  const zoneNorms = index.map(e=>e.normZone);
+  const aliasNorms = Object.keys(aliases).map(normalize);
+  if(!(zoneNorms.includes(q) || aliasNorms.includes(q))) return false;
+  if(!finalMode){
+    const startsLonger = n => n !== q && n.startsWith(q + ' ');
+    if(zoneNorms.some(startsLonger) || aliasNorms.some(startsLonger)) return false;
+  }
+  return true;
+}
+function hasAnyMatch(t){
+  const x = expandColloquialNumbers(t);
+  return findCouriersForZone(x).length > 0 || !!findRegionForSubArea(normalize(x));
+}
+function resolveBestTranscript(res){
+  const alts = [];
+  for(let k=0;k<res.length;k++){ const t = res[k] && res[k].transcript; if(t && t.trim()) alts.push(t); }
+  if(alts.length <= 1) return alts[0] || '';
+  return alts.find(t=> isConfidentMatch(t, true))   // an alternative that lands exactly on real data
+      || alts.find(hasAnyMatch)                      // otherwise the best-ranked one that matches anything real
+      || alts[0];                                    // nothing matches — keep the top guess (shows "unknown")
+}
+
+// `canCommitInterim` (optional): a provisional commit only happens if this
+// says the interim text is trustworthy. Otherwise we wait for the final.
+// How long an interim guess must stay unchanged before we answer on it (ms), or false = wait
+// for the authoritative final. Tiered by how trustworthy the guess is — the final result from
+// the browser can lag a second or more behind the last spoken word, so waiting for it is what
+// made answers take seconds. A wrong early answer is corrected automatically by the final
+// (and an in-progress answer is cut off the moment the person keeps talking).
+//   tier 1 (130ms): exact name that can't be the start of a longer one
+//   tier 2 (250ms): exact zone/alias/number-range hit (incl. a name that prefixes a longer one)
+//   tier 3 (450ms): any match that resolves to ONE courier (STT spelling drift, partial names)
+function interimCommitDelay(t){
+  if(isConfidentMatch(t, false)) return LOW_LATENCY_DEBOUNCE_MS;
+  if(isConfidentMatch(t, true)) return 250;
+  try{
+    const x = expandColloquialNumbers(t);
+    let ms = findCouriersForZone(x);
+    if(!ms.length){ const hit = findRegionForSubArea(normalize(x)); if(hit) ms = findCouriersForZone(hit.region); }
+    if(new Set(ms.map(m=>m.courier)).size === 1) return 450;
+  }catch(e){}
+  return false;
+}
+// "Which courier(s) would this phrase resolve to?" — used to tell a harmless spelling refinement
+// of an already-answered phrase (don't re-speak, don't cut the audio) from a real correction.
+function answerKey(t){
+  try{
+    const x = expandColloquialNumbers(t);
+    let ms = findCouriersForZone(x);
+    if(!ms.length){ const h = findRegionForSubArea(normalize(x)); if(h) ms = findCouriersForZone(h.region); }
+    const k = Array.from(new Set(ms.map(m=>m.courier))).sort().join('|');
+    return k || ('none:' + normalize(x));
+  }catch(e){ return normalize(t); }
+}
+function textSimilarity(a, b){
+  if(!a || !b) return 0;
+  const m = Math.max(a.length, b.length);
+  return m ? 1 - editDistance(a, b) / m : 1;
+}
+let lastCommitAt = 0;   // for the latency log: when the answer was decided
+function makeLowLatencyCommitter(onCommit, canCommitInterim){
+  const firstSeen = {};
+  let timer = null, committedIndex = -1, committedText = '', committedRaw = '';
+  return {
+    // what we've already answered for the current utterance (index + normalized text)
+    last(){ return { index: committedIndex, text: committedText }; },
+    onInterim(index, transcript){
+      clearTimeout(timer);
+      if(firstSeen[index] == null) firstSeen[index] = Date.now();
+      // already answered this very utterance and the refined guess means the same thing -> don't answer twice
+      if(index===committedIndex && committedRaw && answerKey(committedRaw) === answerKey(transcript)) return;
+      let delay = canCommitInterim ? canCommitInterim(transcript) : LOW_LATENCY_DEBOUNCE_MS;
+      if(delay === true) delay = LOW_LATENCY_DEBOUNCE_MS;
+      if(!delay) return;                       // not sure yet — wait for the authoritative final
+      timer = setTimeout(()=>{
+        committedIndex = index; committedText = normalize(transcript); committedRaw = transcript;
+        logDebugSafe('COMMIT', `interim after ${delay}ms: "${transcript}" (+${Date.now() - firstSeen[index]}ms since first words)`);
+        lastCommitAt = Date.now();
+        onCommit(transcript);
+      }, delay);
+    },
+    onFinal(index, transcript){
+      clearTimeout(timer);
+      const norm = normalize(transcript);
+      if(index===committedIndex && norm===committedText) return; // already answered via the interim commit, nothing changed
+      // Same utterance, only the spelling/wording was refined and it resolves to the SAME answer:
+      // leave the audio that is already playing alone instead of cutting it and starting over.
+      if(index===committedIndex && committedRaw && answerKey(committedRaw) === answerKey(transcript)){
+        committedText = norm; committedRaw = transcript;
+        logDebugSafe('COMMIT', `final "${transcript}" — same answer, not re-spoken`);
+        return;
+      }
+      committedIndex = index; committedText = norm; committedRaw = transcript;
+      logDebugSafe('COMMIT', `final: "${transcript}" (+${firstSeen[index] != null ? Date.now() - firstSeen[index] : '?'}ms since first words)`);
+      lastCommitAt = Date.now();
+      onCommit(transcript);
+    }
+  };
+}
+// ---------- Bluetooth headset mic ----------
+// Hard platform limit, stated plainly: the Web Speech API's SpeechRecognition
+// has NO way to choose a microphone — it always captures from whatever the
+// OS currently treats as the active voice input, and there is no `deviceId`
+// option like getUserMedia has. A Bluetooth headset's mic only becomes that
+// active input once the OS has switched the connection to its voice/call
+// profile (HFP) — plain media playback (A2DP) doesn't carry a mic channel at
+// all, and a website cannot force that OS-level switch by itself.
+// What we CAN do: briefly opening a normal getUserMedia() audio session is a
+// known nudge that, on many Android/Chrome combinations, prompts the OS to
+// route audio to a connected Bluetooth headset's voice profile if one is
+// available — and once that routing has switched, SpeechRecognition (which
+// shares the same OS-level input) picks it up too. This is best-effort, not
+// guaranteed on every device — hence the visible status line + manual retry
+// button below, rather than silently assuming it worked.
+let micRoutingWarmed = false;
+async function warmUpMicRouting(force){
+  if(micRoutingWarmed && !force){ updateAudioInputInfo(); return; }
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ updateAudioInputInfo(); return; }
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Give the OS a real head start before SpeechRecognition starts its own,
+    // separate capture — a Bluetooth SCO/HFP link commonly takes 1-2+ seconds
+    // to finish switching. IMPORTANT: this stream is released again — NOT
+    // held open — before recognition starts. Holding our own mic session
+    // open indefinitely (a previous version of this) turned out to block
+    // SpeechRecognition's own capture from getting any audio at all on some
+    // devices — total silence, even on the phone's own built-in mic.
+    await new Promise(r=> setTimeout(r, 900));
+    stream.getTracks().forEach(tr=> tr.stop());
+    micRoutingWarmed = true;
+  }catch(e){ /* permission denied or no mic — SpeechRecognition will surface its own error when it starts */ }
+  await updateAudioInputInfo();
+}
+async function updateAudioInputInfo(){
+  const el = document.getElementById('audioInputInfo');
+  if(!el || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  try{
+    const inputs = (await navigator.mediaDevices.enumerateDevices()).filter(d=> d.kind==='audioinput');
+    if(!inputs.length){ el.textContent = t('audioInputNone'); return; }
+    // Labels are only populated once mic permission has been granted (which
+    // warmUpMicRouting() just did). We can't know for certain which one
+    // SpeechRecognition itself will use — only show what the OS exposes to
+    // the browser at all; a headset that never appears here is itself a
+    // useful signal (the OS isn't offering its mic to Chrome yet).
+    const btLike = inputs.find(d=> /bluetooth|headset|hands.?free|\bbt\b/i.test(d.label));
+    if(btLike) el.textContent = t('audioInputBt').replace('{name}', btLike.label || 'Bluetooth');
+    else if(inputs.some(d=>d.label)) el.textContent = t('audioInputBuiltin');
+    else el.textContent = ''; // no permission yet — nothing useful to show
+  }catch(e){}
+}
+document.getElementById('retryBtMicBtn').addEventListener('click', async ()=>{
+  document.getElementById('audioInputInfo').textContent = t('audioInputChecking');
+  await warmUpMicRouting(true);
+  alert(t('audioInputHelp'));
+});
+try{ navigator.mediaDevices && navigator.mediaDevices.addEventListener('devicechange', updateAudioInputInfo); }catch(e){}
+
+function wireMic(btnId, targetInputId, onResult, forceLang, lowLatency){
+  const btn = document.getElementById(btnId);
+  if(!SpeechRec){ btn.style.display='none'; return; }
+  let rec=null, listening=false;
+  btn.addEventListener('click', async ()=>{
+    if(listening){ rec && rec.stop(); return; }
+    await warmUpMicRouting();
+    rec = new SpeechRec();
+    rec.lang = forceLang || (lang==='ar' ? 'ar-EG' : 'en-US');
+    rec.interimResults = !!lowLatency; rec.maxAlternatives = lowLatency ? STT_ALTERNATIVES : 1;
+    rec.onstart=()=>{ listening=true; btn.classList.add('listening'); };
+    rec.onend=()=>{ listening=false; btn.classList.remove('listening'); };
+    rec.onerror=()=>{ listening=false; btn.classList.remove('listening'); };
+    if(lowLatency){
+      rec.continuous = true; // interimResults+continuous=false is an unreliable combo across
+                              // browsers; we stop the session ourselves once committed instead.
+      const committer = makeLowLatencyCommitter(transcript=>{
+        document.getElementById(targetInputId).value = transcript;
+        try{ rec.stop(); }catch(e){}
+        if(onResult) onResult(transcript);
+      }, interimCommitDelay);
+      rec.onresult=(ev)=>{
+        // Start at ev.resultIndex, NOT "everything after the last one seen":
+        // a result keeps getting updated in place (partial → refined → final)
+        // under the same index, and skipping past it after the first update
+        // drops every later refinement and the final.
+        for(let i=ev.resultIndex;i<ev.results.length;i++){
+          const res = ev.results[i];
+          const best = resolveBestTranscript(res);
+          if(!best) continue;
+          document.getElementById(targetInputId).value = best; // show progress immediately either way
+          if(res.isFinal) committer.onFinal(i, best); else committer.onInterim(i, best);
+        }
+      };
+    } else {
+      rec.onresult=(ev)=>{
+        const tr = ev.results[0][0].transcript;
+        document.getElementById(targetInputId).value = tr;
+        if(onResult) onResult(tr);
+      };
+    }
+    rec.start();
+  });
+}
+wireMic('micCourier','courierInput', t=>{ selectedCourier = t.trim(); });
+wireMic('micZone','zoneInput');
+wireMic('micQuick','quickInput');
+// Search mic is ALWAYS Arabic (ar-EG), regardless of UI language toggle, and
+// runs low-latency (this is the actual "ask a question" path).
+wireMic('micSearch','searchInput', t=> doSearch(t), 'ar-EG', true);
+
+// continuous mode
+// v2 — real barge-in (New Task, latest request).
+// The earlier fix (Known Issue #2) stopped the mic completely while the
+// answer was being spoken, so the device couldn't hear itself. That killed
+// the repeat-loop bug, but it also meant every question had to wait for a
+// full stop → speak → restart cycle before the next one could be heard —
+// too slow for someone firing off questions back-to-back, and it made
+// interrupting an answer mid-sentence impossible.
+//
+// New design: the mic is never stopped once continuous mode is on.
+//  - interim (non-final) results are used to notice "the person just started
+//    talking" as early as possible; the instant that happens while we're
+//    speaking, we cut the current answer immediately (cancelSpeaking())
+//    — that's the barge-in.
+//  - Every result, interim or final, is checked against what we're currently
+//    speaking (or just finished speaking, within a short grace window) with
+//    a fuzzy text match. A match is our own echo and gets ignored; anything
+//    else is a genuine new question and gets processed right away.
+// Caveat: this is a text-similarity heuristic, not real acoustic echo
+// cancellation (the Web Speech API doesn't expose that control) — it should
+// hold up well in practice since answers and area/courier names read very
+// differently, but if it ever swallows a real question that happens to sound
+// close to the previous answer, the threshold in looksLikeEcho can be tuned.
+let continuousActive=false, continuousRec=null, lastResultIndex=0;
+let bargeSeq = -1;
+let bargeInFired = false;   // don't call speechSynthesis.cancel() more than once per incoming phrase
+let lastRecEventAt = 0;     // feeds the installed-app watchdog below
+const contBtn = document.getElementById('continuousBtn');
+const contStatus = document.getElementById('continuousStatus');
+
+// ---- self-echo guard (phone speaker -> phone mic) ----
+// Bug from live use on the built-in mic: the app's own spoken answer ("أحمد عوض") came back through
+// the mic, and the recognizer FINALISES it 1-2 s after the audio stopped. The old check only looked
+// at echoes while speech was still playing (+0.4s), so the late echo was treated as a new question
+// -> searched as a zone -> "unknown" / a wrong courier -> spoken -> heard again -> a self-reply loop.
+// Now every answer is remembered, and anything that resembles it is ignored until ECHO_TAIL_MS
+// after that answer ENDED (whether it finished or was cut off).
+const ECHO_TAIL_MS = 3500;
+const spokenLog = [];              // [{norm, tokens, end}]  end=null while still playing
+function echoTokens(n){ return (n||'').split(/\s+/).filter(w=> w.length >= 2); }
+function tokenClose(a, b){
+  if(a === b) return true;
+  const m = Math.min(a.length, b.length);
+  return m >= 3 && editDistance(a, b) <= (m >= 5 ? 2 : 1);   // recognizer spells synthetic speech slightly differently
+}
+function closeSpoken(){ const now = Date.now(); spokenLog.forEach(e=>{ if(e.end == null) e.end = now; }); }
+function openSpoken(text){
+  closeSpoken();
+  const n = normalize(text);
+  spokenLog.push({ norm:n, tokens:echoTokens(n), end:null });
+  if(spokenLog.length > 6) spokenLog.shift();
+}
+// Stricter than looksLikeEcho: a SHORT earlier answer ("محمد") must not turn every later question that
+// merely contains that word into "echo".
+function resemblesSpoken(heard, spoken){
+  if(heard === spoken) return true;
+  const ht = echoTokens(heard).length, st = echoTokens(spoken).length;
+  if(heard.length >= 4 && spoken.includes(heard)) return true;          // a fragment of our own sentence
+  if(heard.includes(spoken) && ht <= st + 1) return true;               // our sentence plus one stray word
+  const m = Math.max(heard.length, spoken.length);
+  return m > 0 && (1 - editDistance(heard, spoken) / m) >= 0.6;
+}
+function matchesRecentSpeech(heard){
+  if(!heard || heard.length < 3) return null;
+  const now = Date.now(), ht = echoTokens(heard);
+  if(!ht.length) return null;
+  for(let k = spokenLog.length - 1; k >= 0; k--){
+    const e = spokenLog[k];
+    if(e.end != null && now - e.end > ECHO_TAIL_MS) continue;
+    if(resemblesSpoken(heard, e.norm)) return e;
+    // 75%+ of what was heard is words we just said (a zone merely CONTAINING a courier's name stays below this)
+    if(ht.filter(w=> e.tokens.some(t=> tokenClose(w, t))).length / ht.length >= 0.75) return e;
+  }
+  return null;
+}
+function looksLikeEcho(heard, spoken){
+  if(!spoken || !heard) return false;
+  if(heard===spoken || spoken.includes(heard) || heard.includes(spoken)) return true;
+  const dist = editDistance(heard, spoken);
+  const maxLen = Math.max(heard.length, spoken.length);
+  return maxLen>0 && (1 - dist/maxLen) >= 0.6;
+}
+
+// ---- recognizer lifecycle: ONE live instance, restarts with back-off ----
+// Bug found in the live log: when the recognizer failed ("network" / "not-allowed") every onend
+// restarted it immediately, which failed again within milliseconds — a ~100-restarts-per-second loop
+// (the mic icon flickering, nothing actually being heard). The watchdog and the visibility handler
+// also stopped AND started it separately, so several instances could be alive at once.
+let restartTimer = null, lastRecError = null, lastRecStartAt = 0, netFailStreak = 0, deniedStreak = 0;
+function killContinuousRec(){
+  clearTimeout(restartTimer); restartTimer = null;
+  const old = continuousRec; continuousRec = null;
+  if(old){ old.onresult = old.onend = old.onerror = old.onstart = null; try{ old.abort(); }catch(e){ try{ old.stop(); }catch(_){} } }
+}
+function restartContinuous(delay){
+  killContinuousRec();
+  restartTimer = setTimeout(()=>{ restartTimer = null; if(continuousActive) startContinuousCycle(); }, delay||0);
+}
+function startContinuousCycle(){
+  if(!continuousActive || !SpeechRec) return;
+  killContinuousRec();   // never two live recognizers
+  lastResultIndex=0; bargeInFired=false; lastRecEventAt=Date.now();
+  // See "low-latency commit" above — cuts the typical post-speech wait
+  // roughly in half or more by not waiting for the browser's own isFinal.
+  // Provisional (mid-speech) commits only happen when confident; the final
+  // result is always authoritative and corrects anything provisional.
+  const committer = makeLowLatencyCommitter(transcript=>{
+    document.getElementById('searchInput').value = transcript;
+    doSearch(transcript);
+  }, interimCommitDelay);
+  const myRec = new SpeechRec(); continuousRec = myRec; lastRecError = null;
+  continuousRec.lang = 'ar-EG'; // search voice is always Arabic
+  continuousRec.continuous = true; continuousRec.interimResults=true; continuousRec.maxAlternatives=STT_ALTERNATIVES;
+  continuousRec.onstart=()=>{ if(continuousRec!==myRec) return; contStatus.textContent='...'; lastRecEventAt=Date.now(); lastRecStartAt=Date.now(); lastRecError=null; logDebugSafe('REC', 'started'); };
+  continuousRec.onerror=(e)=>{ if(continuousRec!==myRec) return; lastRecError = e.error; contStatus.textContent = e.error; lastRecEventAt=Date.now(); logDebugSafe('REC', `error: ${e.error} (ttsActive=${ttsActive})`); };
+  continuousRec.onresult=(ev)=>{
+    if(continuousRec!==myRec) return;
+    netFailStreak = 0; deniedStreak = 0;
+    lastRecEventAt = Date.now();
+    // ev.resultIndex, not "everything after the last one seen": a result is
+    // updated in place (partial → refined → final) under the same index, and
+    // skipping past it after its first update dropped every refinement and
+    // the final — only the first half-heard fragment was ever searched.
+    for(let i=ev.resultIndex;i<ev.results.length;i++){
+      const res = ev.results[i];
+      const heard = normalize(res[0].transcript); // top guess — used only for echo/barge-in checks
+      if(!heard) continue;
+      // Our own voice coming back through the mic (any time within ECHO_TAIL_MS of an answer) is
+      // neither a question nor an interruption.
+      const echoOf = matchesRecentSpeech(heard);
+      if(echoOf){ logDebugSafe('ECHO', `${res.isFinal ? 'final' : 'interim'} "${heard}" ≈ own answer "${echoOf.norm}" — ignored`); continue; }
+      if(!res.isFinal){
+        if(ttsActive){
+          // We're talking and something that is NOT our echo arrives -> barge-in.
+          // Exception: the person's own question keeps being refined for a moment after we answered on
+          // an early guess — that is not a new interruption.
+          const lastC = committer.last();
+          const sameUtterance = lastC.index === i && lastC.text && (textSimilarity(heard, lastC.text) >= 0.75 || lastC.text.startsWith(heard) || heard === lastC.text);
+          if(sameUtterance){ logDebugSafe('interim', `refinement of answered phrase "${heard}" — ignored`); continue; }
+          if(bargeSeq !== ttsSeqId){ bargeInFired = false; bargeSeq = ttsSeqId; }   // a fresh answer can be interrupted again
+          if(!bargeInFired && heard.length >= 4){
+            bargeInFired = true;
+            logDebugSafe('BARGE-IN', `triggered by "${heard}"`);
+            cancelSpeaking();
+            // answer the interrupting question right away — don't wait for the next interim update
+            committer.onInterim(i, resolveBestTranscript(res));
+          }
+        } else {
+          committer.onInterim(i, resolveBestTranscript(res));
+        }
+        continue;
+      }
+      logDebugSafe('FINAL', `"${heard}" ttsActive=${ttsActive}`);
+      bargeInFired = false;
+      committer.onFinal(i, resolveBestTranscript(res));
+    }
+  };
+  continuousRec.onend=()=>{
+    if(continuousRec!==myRec) return;
+    lastRecEventAt = Date.now();
+    let delay = 0;
+    const lived = Date.now() - lastRecStartAt;
+    if(lastRecError === 'not-allowed' || lastRecError === 'service-not-allowed'){
+      deniedStreak++;
+      if(deniedStreak >= 4){
+        logDebugSafe('REC', 'mic permission refused repeatedly — stopping instead of looping');
+        stopContinuous();
+        contStatus.textContent = 'الميك مش مسموح — اسمح بالميكروفون من إعدادات المتصفح وابدأ تاني';
+        return;
+      }
+      delay = 400 * deniedStreak;
+    } else if(lastRecError === 'network'){
+      netFailStreak++;
+      delay = Math.min(5000, 300 * Math.pow(2, netFailStreak));   // 0.6s, 1.2s, 2.4s ... max 5s
+      contStatus.textContent = 'مفيش اتصال بخدمة الصوت — بحاول تاني...';
+    } else {
+      if(lived > 3000){ netFailStreak = 0; deniedStreak = 0; }
+      if(lived < 300) delay = 300;                                  // ended instantly: don't spin
+    }
+    logDebugSafe('REC', `ended, restarting in ${delay}ms (ttsActive=${ttsActive}, err=${lastRecError})`);
+    restartContinuous(delay);
+  };
+  try{ continuousRec.start(); }catch(e){ logDebugSafe('REC', 'start() threw: '+e.message); restartContinuous(500); }
+}
+function stopContinuous(){
+  continuousActive=false;
+  contBtn.querySelector('span').textContent = t('continuousStart');
+  contBtn.classList.remove('btn-danger'); contBtn.classList.add('btn-outline');
+  killContinuousRec();
+  cancelSpeaking();
+  releaseWakeLock();
+}
+contBtn.addEventListener('click', async ()=>{
+  continuousActive = !continuousActive;
+  if(continuousActive){
+    netFailStreak = 0; deniedStreak = 0; lastRecError = null;
+    contBtn.querySelector('span').textContent = t('continuousStop');
+    contBtn.classList.remove('btn-outline'); contBtn.classList.add('btn-danger');
+    await warmUpMicRouting();
+    startContinuousCycle();
+    requestWakeLock();
+  } else { stopContinuous(); }
+});
+if(!SpeechRec){ contBtn.disabled = true; }
+
+// ---- installed-app (standalone PWA) resilience ----
+// A standalone/installed PWA gets suspended by the OS far more aggressively
+// than an open browser tab — screen lock, task switching, background
+// throttling — which can silently kill an active SpeechRecognition session
+// without ever firing `onend`. Without this, continuous mode would just go
+// quiet on the installed app until someone notices and taps the button again.
+// The watchdog below makes it self-heal, and the screen wake lock keeps the
+// screen (and the mic session) from being suspended in the first place while
+// continuous mode is meant to be running.
+let wakeLock = null;
+async function requestWakeLock(){
+  try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+}
+function releaseWakeLock(){
+  if(wakeLock){ try{ wakeLock.release(); }catch(e){} wakeLock = null; }
+}
+document.addEventListener('visibilitychange', ()=>{
+  // Coming back from the background is exactly when a silently-killed
+  // recognizer needs restarting, and when the wake lock (released by the
+  // OS while hidden) needs re-requesting.
+  if(document.visibilityState==='visible' && continuousActive){
+    restartContinuous(200);
+    requestWakeLock();
+  }
+});
+setInterval(()=>{
+  if(!continuousActive || ttsActive) return;
+  if(Date.now() - lastRecEventAt > 25000){   // was 8s: restarted the mic during ordinary silence
+    restartContinuous(0);
+  }
+}, 4000);
+
+// ================= init =================
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
+applyLang();
+renderAll();
+</script>
+</body>
+</html>
