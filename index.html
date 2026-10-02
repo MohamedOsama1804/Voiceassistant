@@ -117,7 +117,6 @@
   .switch[aria-checked="true"] .knob{transform:translateX(18px);background:#fff;}
   [dir="rtl"] .switch[aria-checked="true"] .knob{transform:translateX(-18px);}
 </style>
-<link rel="preconnect" href="https://swedencentral.tts.speech.microsoft.com" crossorigin>
 </head>
 <body>
 <div class="wrap">
@@ -669,14 +668,12 @@ dataRef.on('value', snap=>{
   dataReady = true;
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }catch(e){}
   renderAll();
-  try{ azureScheduleWarmup(); }catch(e){}
 });
 aliasesRef.on('value', snap=>{
   aliases = snap.val() || {};
   aliasesReady = true;
   try{ localStorage.setItem(ALIASES_KEY, JSON.stringify(aliases)); }catch(e){}
   renderAll();
-  try{ azureScheduleWarmup(); }catch(e){}
 });
 
 async function saveData(){ zoneIndexCache = null; try{ await dataRef.set(data); return true; }catch(e){ alert('Save failed — are you signed in?'); return false; } }
@@ -1663,9 +1660,11 @@ function pickBestArabicVoice(){
   if(!('speechSynthesis' in window)) return null;
   const voices = speechSynthesis.getVoices() || [];
   // Prefer a true Egyptian voice if the device/browser has one installed.
-  let v = voices.find(v=> /^ar[-_]eg/i.test(v.lang));
-  if(!v) v = voices.find(v=> /^ar/i.test(v.lang)); // any Arabic voice as fallback
-  return v || null;
+  // On-device voices start speaking immediately; "network" voices (localService=false) need a
+  // round trip first, which is pure added delay — so prefer local ones, Egyptian first.
+  const eg = voices.filter(v=> /^ar[-_]eg/i.test(v.lang));
+  const ar = voices.filter(v=> /^ar/i.test(v.lang));
+  return eg.find(v=> v.localService) || ar.find(v=> v.localService) || eg[0] || ar[0] || null;
 }
 if('speechSynthesis' in window){
   bestArabicVoice = pickBestArabicVoice();
@@ -1701,11 +1700,8 @@ updateVoiceInfo();
 // relies entirely on looksLikeEcho() below and is a lower priority to
 // revisit once TTS itself is confirmed solid again.
 let ttsActive = false, lastSpokenNormalized = '', ttsGraceTimer = null, ttsSeqId = 0;
-const AZURE_MISS_BUDGET_MS = 1500;
-let currentAzureAudio = null; // the <audio> element currently playing an Azure-voiced answer, if any
 function cancelSpeaking(){
   ttsSeqId++; // invalidates any chunk still waiting on its own setTimeout/onend
-  if(currentAzureAudio){ try{ currentAzureAudio._stop = true; currentAzureAudio.pause(); }catch(e){} currentAzureAudio = null; }
   try{ speechSynthesis.cancel(); }catch(e){}
   ttsActive = false;
   logDebugSafe('CANCEL', 'speech cancelled');
@@ -1728,123 +1724,28 @@ function logDebug(tag, msg){
   if(lines.length > 60) contDebugLog.textContent = lines.slice(-60).join('\n');
   contDebugLog.scrollTop = contDebugLog.scrollHeight;
 }
-// ---------- Azure Neural TTS (Egyptian Arabic) ----------
-// SECURITY NOTE — read before touching this: this key is a plain client-side
-// secret. It sits in this static HTML file with nothing to hide it, so
-// anyone who views the page source (or the Installed App's cached file) can
-// read it and make calls against your Azure bill. That's the honest tradeoff
-// of a backend-less single-file app calling Azure directly — the "correct"
-// fix is a tiny server that hands out short-lived tokens, which this project
-// doesn't have. Two cheap mitigations worth doing on the Azure side: set a
-// cost/budget alert on the Speech resource, and rotate the key if it's ever
-// shared somewhere public.
-const AZURE_TTS_KEY = '7GCsfNxrHqfZ2QaysSqiB9FKJEJHpn52fDfpwXxZu88FLadZWBEeJQQJ99CJACfhMk5XJ3w3AAAYACOGhLu1';
-const AZURE_TTS_REGION = 'swedencentral';
-// ar-EG-SalmaNeural (female) / ar-EG-ShakirNeural (male) are the two
-// Egyptian Arabic neural voices Azure offers — swap the line below to switch.
-const AZURE_TTS_VOICE = 'ar-EG-ShakirNeural';
-const AZURE_TTS_ENDPOINT = `https://${AZURE_TTS_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`;
-// In-memory only — resets on reload. Repeating the same answer (very common;
-// courier names repeat constantly) plays instantly from here with zero
-// network cost; a brand-new phrase still pays one real network round trip.
-const azureAudioCache = new Map(); // text -> blob: URL
-const AZURE_FORMAT = 'riff-24khz-16bit-mono-pcm'; // raw WAV: starts instantly, no MP3 padding/decode
-const AZURE_CACHE_NAME = 'az-tts-shakir-v1';       // persistent copy: survives app restarts
-const AZURE_WARM_MAX = 1200;                        // cap on phrases pre-generated in the background
-function escapeSsml(s){
-  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
-}
-function azureCacheKey(text){ return `https://tts.cache.local/${AZURE_TTS_VOICE}/${AZURE_FORMAT}/${encodeURIComponent(text)}`; }
-async function azureNetworkBlob(text, signal){
-  const ssml = `<speak version='1.0' xml:lang='ar-EG'><voice name='${AZURE_TTS_VOICE}'>${escapeSsml(text)}</voice></speak>`;
-  const res = await fetch(AZURE_TTS_ENDPOINT, {
-    method: 'POST', signal,
-    headers: {
-      'Ocp-Apim-Subscription-Key': AZURE_TTS_KEY,
-      'Content-Type': 'application/ssml+xml',
-      'X-Microsoft-OutputFormat': AZURE_FORMAT,
-    },
-    body: ssml,
-  });
-  if(!res.ok){ const e = new Error(`Azure TTS HTTP ${res.status}`); e.status = res.status; throw e; }
-  return await res.blob();
-}
-async function fetchAzureAudioUrl(text, signal){
-  if(azureAudioCache.has(text)) return azureAudioCache.get(text);          // instant
-  let blob = null;
-  if(typeof caches !== 'undefined'){                                         // ~ms, no network
-    try{ const c = await caches.open(AZURE_CACHE_NAME); const r = await c.match(azureCacheKey(text)); if(r) blob = await r.blob(); }catch(e){}
-  }
-  if(!blob){
-    blob = await azureNetworkBlob(text, signal);
-    if(typeof caches !== 'undefined'){
-      try{ const c = await caches.open(AZURE_CACHE_NAME); await c.put(azureCacheKey(text), new Response(blob.slice(0, blob.size, blob.type), { headers:{ 'Content-Type':'audio/wav' } })); }catch(e){}
-    }
-  }
-  const url = URL.createObjectURL(blob);
-  azureAudioCache.set(text, url);
-  return url;
-}
-// ---- background pre-generation: once this finishes, every answer plays with ZERO network wait ----
-// Covers every sentence doSearch() can speak: courier names (field mode), the two fixed
-// phrases, "courier، zone" (normal mode) and the alias sentences. Only missing phrases are
-// requested, so after the first run this is nearly free. Names go first.
-let azWarmTimer = null, azWarmRunning = false, azWarmDirty = false;
-function azurePhrases(){
-  const out = ['غير معروف', 'فيه أكتر من مندوب محتمل، حدد المنطقة أكتر'];
-  const names = Object.keys(data || {});
-  names.forEach(n=> out.push(n));
+// ---------- device voice (fast path) ----------
+// Output-speed notes:
+//  * SPEECH_RATE slightly above normal so the name/answer finishes sooner.
+//  * speechSynthesis.cancel() right before speak() adds delay (and is a known cause of dropped
+//    speech on Android Chrome), so it is only called when something is actually queued/speaking.
+//  * The first speak() of a session has a cold start while the engine loads; primeSpeech() pays
+//    that cost silently on the first tap instead of on the first real answer.
+//  * The utterance is kept in a global so it can't be garbage-collected mid-speech (another
+//    Chrome quirk that silently drops onend and strands the mic logic).
+const SPEECH_RATE = 1.1;
+let activeUtterance = null, speechPrimed = false;
+function primeSpeech(){
+  if(speechPrimed || !('speechSynthesis' in window)) return;
+  speechPrimed = true;
   try{
-    Object.keys(aliases || {}).forEach(sub=>{
-      const region = aliases[sub];
-      out.push(`${sub} تابعة لمنطقة ${region}`);
-      let ms = []; try{ ms = findCouriersForZone(region) || []; }catch(e){}
-      Array.from(new Set(ms.map(m=>m.courier))).slice(0,1).forEach(c=> out.push(`${sub} تابعة لمنطقة ${region}، تابع مندوب ${c}`));
-    });
-  }catch(e){}
-  names.forEach(n=> (data[n]||[]).forEach(z=> out.push(`${n}، ${z}`)));
-  return Array.from(new Set(out)).slice(0, AZURE_WARM_MAX);
-}
-function azureScheduleWarmup(){ clearTimeout(azWarmTimer); azWarmTimer = setTimeout(azureWarmup, 1500); }
-async function azureWarmup(){
-  if(!AZURE_TTS_KEY || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
-  if(azWarmRunning){ azWarmDirty = true; return; }
-  azWarmRunning = true; azWarmDirty = false;
-  const list = azurePhrases(); let idx = 0, bad = 0;
-  const worker = async ()=>{
-    while(idx < list.length && bad < 6){
-      const text = list[idx++];
-      for(let attempt=0; attempt<3; attempt++){
-        try{ await fetchAzureAudioUrl(text); bad = 0; break; }
-        catch(e){ bad++; await new Promise(r=> setTimeout(r, e && e.status===429 ? 3000 : 1500)); if(bad >= 6) break; }
-      }
-    }
-  };
-  await Promise.all([worker(), worker()]);
-  logDebugSafe('WARMUP', `${Math.min(idx,list.length)}/${list.length} phrases ready`);
-  if(typeof caches !== 'undefined'){   // keep the persistent cache from growing forever
-    try{ const c = await caches.open(AZURE_CACHE_NAME); const ks = await c.keys(); if(ks.length > AZURE_WARM_MAX + 300) for(const k of ks.slice(0, ks.length - AZURE_WARM_MAX - 300)) await c.delete(k); }catch(e){}
-  }
-  azWarmRunning = false;
-  if(azWarmDirty) azureScheduleWarmup();
-}
-// Original device-voice path, kept as the fallback for when Azure is
-// unreachable, misconfigured, or out of quota — TTS must never go silent
-// just because the network call failed (see Priority 1, earlier in this
-// project: a silent voice path is worse than a lower-quality one).
-function speakNative(text, mySeq, finish){
-  try{
-    if(!('speechSynthesis' in window)){ finish(); return; }
-    const u = new SpeechSynthesisUtterance(text);
-    if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; }
-    else { u.lang = 'ar-SA'; }
-    u.rate = 1; u.pitch = 1; u.volume = 1;
-    u.onstart = ()=>{ if(mySeq===ttsSeqId) ttsActive = true; };
-    u.onend = finish; u.onerror = finish;
-    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance('ا');
+    u.volume = 0; u.rate = 2;
+    if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; } else { u.lang = 'ar-EG'; }
     speechSynthesis.speak(u);
-  }catch(e){ finish(); }
+  }catch(e){}
 }
+document.addEventListener('pointerdown', primeSpeech, { once:true });
 function speakAr(text, onDone){
   const mySeq = ++ttsSeqId;
   lastSpokenNormalized = normalize(text);
@@ -1858,43 +1759,19 @@ function speakAr(text, onDone){
     ttsGraceTimer = setTimeout(()=>{ if(mySeq===ttsSeqId) ttsActive=false; }, 400);
     if(onDone) onDone();
   };
-  if(!AZURE_TTS_KEY){ speakNative(text, mySeq, finish); return; }
-  (async ()=>{
-    // Normal case after warm-up: the phrase is already cached -> no network at all.
-    // Rare cache miss: if Azure hasn't answered within AZURE_MISS_BUDGET_MS, speak with the
-    // device voice right away rather than leaving the person in silence for seconds.
-    let settled = false; const ctl = new AbortController();
-    const budget = setTimeout(()=>{ if(settled || mySeq !== ttsSeqId) return; settled = true; ctl.abort(); logDebugSafe('SPEAK', 'Azure slow — device voice now'); speakNative(text, mySeq, finish); }, AZURE_MISS_BUDGET_MS);
-    try{
-      const url = await fetchAzureAudioUrl(text, ctl.signal);
-      clearTimeout(budget);
-      if(settled) return;
-      settled = true;
-      if(mySeq !== ttsSeqId) return; // a newer answer or a cancel already happened while we were fetching
-      if(currentAzureAudio){ try{ currentAzureAudio._stop = true; currentAzureAudio.pause(); }catch(e){} }
-      const audio = new Audio(url);
-      currentAzureAudio = audio;
-      audio.onplay = ()=>{ if(mySeq===ttsSeqId) ttsActive = true; };
-      audio.onended = finish; audio.onerror = finish;
-      // The OS can pause media for a moment when the mic session restarts (audio focus). If that
-      // pause wasn't ours (cancel / newer answer), resume instead of leaving a chopped answer.
-      audio.onpause = ()=>{
-        if(audio._stop || audio.ended || mySeq !== ttsSeqId) return;
-        logDebugSafe('AUDIO', 'paused by system — resuming');
-        audio.play().catch(()=>{});
-      };
-      await audio.play();
-    }catch(e){
-      clearTimeout(budget);
-      if(settled && e && e.name === 'AbortError') return;   // budget timer already took over with the device voice
-      settled = true;
-      if(mySeq !== ttsSeqId) return;
-      logDebugSafe('SPEAK', `Azure TTS failed (${e.message}) — falling back to device voice`);
-      speakNative(text, mySeq, finish);
-    }
-  })();
+  try{
+    if(!('speechSynthesis' in window)){ finish(); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    if(bestArabicVoice){ u.voice = bestArabicVoice; u.lang = bestArabicVoice.lang; }
+    else { u.lang = 'ar-EG'; }
+    u.rate = SPEECH_RATE; u.pitch = 1; u.volume = 1;
+    u.onstart = ()=>{ if(mySeq===ttsSeqId){ ttsActive = true; logDebugSafe('SPEAK', 'audio started'); } };
+    u.onend = finish; u.onerror = finish;
+    activeUtterance = u;
+    if(speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  }catch(e){ finish(); }
 }
-azureScheduleWarmup();
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 // ---------- low-latency commit (speed request) ----------
 // The browser's SpeechRecognition only marks a result `isFinal` after it
