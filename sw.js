@@ -1,4 +1,4 @@
-const CACHE_NAME = 'courier-directory-v5';
+const CACHE_NAME = 'courier-directory-v4';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './xlsx.full.min.js'];
 
 self.addEventListener('install', (event) => {
@@ -14,19 +14,26 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Don't touch Azure TTS (cross-origin POST) or any non-GET request — Cache API can't store them.
-  if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
-  // Network-first: always try to get the latest version from the server first.
-  // Only fall back to the cached copy if there's no internet connection.
-  // (Old version used cache-first, which kept showing stale code after updates
-  // until the user manually cleared site data.)
+  // Stale-while-revalidate: answer instantly from the cache when we have one
+  // (so the app opens immediately even on slow warehouse wifi), while a
+  // background fetch quietly refreshes that cache entry for next time.
+  // (The previous version was network-first, which made every single open
+  // wait on a full round-trip even when nothing had changed — that's what
+  // was making the app feel slow. This keeps the app fresh within one
+  // reload instead, which is enough to avoid the old "stuck for days"
+  // staleness problem without paying the latency cost every time.)
   event.respondWith(
-    fetch(event.request)
-      .then((res) => {
-        const resClone = res.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
-        return res;
-      })
-      .catch(() => caches.match(event.request))
+    caches.match(event.request).then((cached) => {
+      const network = fetch(event.request)
+        .then((res) => {
+          if (res && res.ok) {
+            const resClone = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
+          }
+          return res;
+        })
+        .catch(() => cached);
+      return cached || network;
+    })
   );
 });
